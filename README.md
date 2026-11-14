@@ -6,6 +6,11 @@ Give this tool the ID of a target protein. It reads the published 3D structures 
 protein. It shows which antibodies and other molecules already stick to it, and which parts
 of the protein they touch most.
 
+![The demo page with EGFR selected: the 3D antigen coloured by how many binders touch each part](docs/images/demo-result.jpg)
+
+*The demo page, showing the saved EGFR run. Grey means no binder touches that part. Blue to red
+means more binders do.*
+
 ## Quick start
 
 You need Python 3.9 or newer. There is nothing to install.
@@ -47,7 +52,7 @@ A run writes a folder with these files:
 | `atlas-out/binders.pdb` | all binders, placed in one 3D frame |
 | `props.json` | for each amino acid: how exposed, how water-repelling and how buried it is |
 | `target/<name>_hotspots.txt` | amino acids to aim at, ready for a design model |
-| `viewer/index.html` | a 3D page that colours the antigen by how many binders touch each part |
+| `viewer/index.html` | a 3D page for this antigen, like the picture at the top |
 | `inputs.lock.json`, `inputs.snapshot.json` | the exact inputs, so you can repeat the run |
 | `atlas.log` | notes from step 3 and 4, including what was skipped and why |
 
@@ -59,22 +64,15 @@ internet.
 python3 -m http.server --directory runs/egfr/viewer
 ```
 
-## What it looks like
+## More views
 
-This is the demo page. It shows the two saved runs, HER2 and EGFR. A run's own
-`viewer/index.html` has the same 3D view.
-
-The antigen is coloured by how many distinct binders touch each part. Grey means none. Blue to
-red means more.
-
-![The demo page with EGFR selected: the 3D antigen coloured by binder count, and the main numbers beside it](docs/images/demo-overview.jpg)
-
-**Show all** places every binder on the antigen. The grey lines pile up where the colour is
-strongest.
+The demo page shows the two saved runs, HER2 and EGFR. **Show all** places every binder on the
+antigen. The grey lines pile up where the colour is strongest.
 
 ![Every EGFR binder placed on the antigen](docs/images/demo-binders.jpg)
 
-You can search by antigen, by drug or by UniProt ID. Typing `cetuximab` finds EGFR.
+The demo page also has a search box. You can search by antigen, by drug or by UniProt ID.
+Typing `cetuximab` finds EGFR.
 
 ![The search box with cetuximab typed in, and the EGFR result](docs/images/demo-search.png)
 
