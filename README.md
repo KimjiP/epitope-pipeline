@@ -59,6 +59,25 @@ internet.
 python3 -m http.server --directory runs/egfr/viewer
 ```
 
+## What it looks like
+
+This is the demo page. It shows the two saved runs, HER2 and EGFR. A run's own
+`viewer/index.html` has the same 3D view.
+
+The antigen is coloured by how many distinct binders touch each part. Grey means none. Blue to
+red means more.
+
+![The demo page with EGFR selected: the 3D antigen coloured by binder count, and the main numbers beside it](docs/images/demo-overview.jpg)
+
+**Show all** places every binder on the antigen. The grey lines pile up where the colour is
+strongest.
+
+![Every EGFR binder placed on the antigen](docs/images/demo-binders.jpg)
+
+You can search by antigen, by drug or by UniProt ID. Typing `cetuximab` finds EGFR.
+
+![The search box with cetuximab typed in, and the EGFR result](docs/images/demo-search.png)
+
 ## How it works
 
 | Step | What happens | Script |
