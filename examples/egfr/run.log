@@ -1,27 +1,27 @@
-Target: EGFR (P00533)   output: demo-egfr
+Replaying examples/egfr/inputs.lock.json: 40 structures recorded on 2026-11-14
+Target: EGFR (P00533)   output: runs/egfr-replay
 
-STEP 1  Ask the literature what is already known
-        For HER2 this was nine Amass queries, and the structure list came
-        from one field of an Amass gene record. Here the same list is read
-        from the UniProt entry, so the demo needs no account.
+STEP 1  Read what is already known about the protein
+        its sequence, its parts and its list of known structures, from the UniProt entry
+        read from the snapshot beside the lock; no network call
         Epidermal growth factor receptor
-        sequence 1210 residues  ->  demo-egfr/P00533.fasta
+        sequence 1210 residues  ->  runs/egfr-replay/P00533.fasta
         388 structures listed on the entry
         signal peptide 1-24: files may number from 25 or from 1, so numbering is recovered per file in step 3
         3 annotated domains: Approximate-1 75-300, Approximate-2 390-600, Protein-kinase-3 712-979
 
-STEP 2  Collect every published structure of it
-        one field of one record listed them all; download the lot
-        keeping the 57 of 388 that overlap residues 25-645 (the extracellular part, per UniProt)
-        an antibody drug must reach its target from outside the cell
-        taking the first 40 (raise --limit for more)
-        40 structure files in demo-egfr/pdb-cache
+STEP 2  Collect the published structures of it
+        the list on the UniProt entry; download up to --limit of them
+        the lock names 40 structures; the entry listed 388
+        40 structure files in .cache
+        every file matches the hash in the lock
+        relatives from the lock: P04626, P21860, Q15303
         relatives to exclude: P04626, P21860, Q15303
 
 STEP 3  Put them all in one coordinate frame
         recover each file's own residue numbering, then superpose every complex
         reference: 3NJP chain A, 614 modelled residues, offset +24
-        chain names and resolutions for 40 entries from the PDB
+        chain names and resolutions for 40 entries from the snapshot
         running atlas.py over 40 files ...
         excluding chains that match: ERBB2_HUMAN, ERBB3_HUMAN, ERBB4_HUMAN
         33 of 40 entries used -> 37 units -> 19 distinct binders
@@ -55,8 +55,8 @@ STEP 4  Count distinct binders, not files
         most-targeted patch: residues 435-458 (UniProt), hit by 16 of 19 distinct binders
           epidermal growth facto, Transforming Growth Fa, Cetuximab Fab Heavy ch, IMC-11F8 Fab Heavy cha, IMC-11F8 FAB Heavy cha, Matuzumab Fab Heavy ch ...
 
-STEP 5  Measure the surface and score every site
-        contacts, exposure, hydrophobicity, and what has precedent
+STEP 5  Measure the surface
+        exposure, hydrophobicity, burial, and how many binders touch each amino acid
         exposed (rSASA >= 0.10): 425
         burial range 38-228, median 133
         most exposed hydrophobic residues: L1, V255, L595, F357, I556, L325, I467, V6
@@ -77,17 +77,17 @@ STEP 6  Hand over what a design model needs
         hotspots, in 3NJP chain A numbering: Q411,F412,A415,V417,S418,L419,E431,S433
           the same residues in UniProt numbering: Q435,F436,A439,V441,S442,L443,E455,S457
           (this file numbers from +24 against UniProt; the design model needs the file's own numbers)
-          demo-egfr/target/egfr_hotspots.txt
-          demo-egfr/target/egfr_numbering.json
-          demo-egfr/target/egfr_target.pdb
-        3D page: demo-egfr/viewer/index.html
+          runs/egfr-replay/target/egfr_hotspots.txt
+          runs/egfr-replay/target/egfr_numbering.json
+          runs/egfr-replay/target/egfr_target.pdb
+        3D page: runs/egfr-replay/viewer/index.html
         the measured data:
-        lock      demo-egfr/inputs.lock.json
+        lock      runs/egfr-replay/inputs.lock.json
         atlas     atlas-out/atlas.json
         binders   atlas-out/binders.pdb
         props     props.json
         sequence  P00533.fasta
         atlas_log atlas.log
-        summary   demo-egfr/summary.json
+        summary   runs/egfr-replay/summary.json
 
 Same six steps, different target. EGFR: 40 structures in, 19 distinct binders out.

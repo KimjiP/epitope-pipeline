@@ -230,10 +230,9 @@ def main():
     print(f'Target: {args.name} ({args.uniprot})   output: {out}')
 
     # ---------------------------------------------------------------- 1 ----
-    banner(1, 'Ask the literature what is already known',
-           'For HER2 this was nine Amass queries, and the structure list came\n'
-           'from one field of an Amass gene record. Here the same list is read\n'
-           'from the UniProt entry, so the demo needs no account.')
+    banner(1, 'Read what is already known about the protein',
+           'its sequence, its parts and its list of known structures, '
+           'from the UniProt entry')
     if snap:
         u = snap['uniprot']
         seq, fullname, sig = u['sequence'], u['full_name'], u['signal']
@@ -271,8 +270,8 @@ def main():
               'name domains')
 
     # ---------------------------------------------------------------- 2 ----
-    banner(2, 'Collect every published structure of it',
-           'one field of one record listed them all; download the lot')
+    banner(2, 'Collect the published structures of it',
+           'the list on the UniProt entry; download up to --limit of them')
     chosen, region = pdbs, None
     if lock:
         byid = {p['id']: p for p in pdbs}
@@ -490,8 +489,8 @@ def main():
               + (' ...' if len(who) > 6 else ''))
 
     # ---------------------------------------------------------------- 5 ----
-    banner(5, 'Measure the surface and score every site',
-           'contacts, exposure, hydrophobicity, and what has precedent')
+    banner(5, 'Measure the surface',
+           'exposure, hydrophobicity, burial, and how many binders touch each amino acid')
     props = os.path.join(out, 'props.json')
     r2 = subprocess.run([sys.executable, '-I', os.path.join(HERE, 'surface_props.py'),
                          os.path.join(cache, f'{ref_pdb}.cif'), ref_chain,
