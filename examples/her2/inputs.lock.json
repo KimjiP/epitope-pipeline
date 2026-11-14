@@ -1,6 +1,6 @@
 {
-  "schema": "epitope-pipeline-lock/1",
-  "generated": "2026-11-14T14:57:25+00:00",
+  "schema": "epitope-pipeline-lock/2",
+  "generated": "2026-11-14T15:18:11+00:00",
   "target": "HER2",
   "uniprot": "P04626",
   "sequence_sha256": "a5f256fc653515d110f6dd48ad55b8ea21bf6d45af33b7f5c182c6c31455b636",
@@ -218,5 +218,9 @@
       "id": "9T3S",
       "sha256": "5868fc57aecedd8602ee8edd886597849cfbacec0fb028085c64071fab20cd84"
     }
-  ]
+  ],
+  "snapshot": {
+    "file": "inputs.snapshot.json",
+    "sha256": "27580dcc5eebf88e7a102ba42e70d0314fe3e97e7d891eaf4b89324ec0c4d866"
+  }
 }

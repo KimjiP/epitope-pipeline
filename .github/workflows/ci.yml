@@ -7,12 +7,16 @@ on:
   schedule:
     - cron: "0 6 * * 1"        # Mondays: has the PDB moved under the examples?
 
+# Every job is pinned to ubuntu-24.04, not ubuntu-latest. The "latest" label moved to
+# Ubuntu 26.04, which has no Python 3.9 build, and the first push failed for that
+# reason alone. A CI that changes its operating system under you is not reproducible.
 jobs:
   # Every push. No network, a few seconds. Proves the maths and that the code
   # runs on the oldest Python the README claims.
   selftest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false          # one version failing must not cancel the other
       matrix:
         python: ["3.9", "3.12"]
     steps:
@@ -28,7 +32,7 @@ jobs:
   # sys.stdlib_module_names needs 3.10, so this is its own job rather than part
   # of the version matrix.
   stdlib-only:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -58,7 +62,7 @@ jobs:
   # pipeline still produces the committed numbers.
   reproduce:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

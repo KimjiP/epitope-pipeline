@@ -83,5 +83,6 @@
     "burial_vs_binders": 0.053,
     "rsasa_vs_binders": 0.013
   },
-  "lock": "inputs.lock.json"
+  "lock": "inputs.lock.json",
+  "snapshot": "inputs.snapshot.json"
 }

@@ -136,6 +136,34 @@ ENTITY_QUERY = '''{
 }'''
 
 
+def canonical_entities(doc):
+    '''Put the PDB's reply in a fixed order.
+
+    The service returns the entities of one entry in a different order from one
+    call to the next, so two downloads of the same data differ byte for byte.
+    Sorting makes the file, and any hash of it, stable.'''
+    entries = (doc.get('data') or {}).get('entries') or []
+    for e in entries:
+        pes = e.get('polymer_entities') or []
+        for pe in pes:
+            ids = pe.get('rcsb_polymer_entity_container_identifiers') or {}
+            if isinstance(ids.get('auth_asym_ids'), list):
+                ids['auth_asym_ids'] = sorted(ids['auth_asym_ids'])
+            if isinstance(pe.get('rcsb_entity_source_organism'), list):
+                pe['rcsb_entity_source_organism'].sort(
+                    key=lambda o: json.dumps(o, sort_keys=True))
+
+        def eid(pe):
+            try:
+                return int((pe.get('rcsb_polymer_entity_container_identifiers') or {})
+                           .get('entity_id'))
+            except (TypeError, ValueError):
+                return 0
+        pes.sort(key=eid)
+    entries.sort(key=lambda e: e.get('rcsb_id', ''))
+    return doc
+
+
 def fetch_entities(ids, path):
     """What each chain in each file actually is, from the PDB's own metadata.
 
@@ -149,15 +177,16 @@ def fetch_entities(ids, path):
         doc = json.loads(r.read())
     if not (doc.get('data') or {}).get('entries'):
         return None, 0
+    doc = canonical_entities(doc)
     with open(path, 'w') as fh:
-        json.dump(doc, fh)
+        json.dump(doc, fh, sort_keys=True)
     return path, len(doc['data']['entries'])
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--uniprot', required=True, help='accession, e.g. P00533')
-    ap.add_argument('--name', required=True, help='short name for the target')
+    ap.add_argument('--uniprot', help='accession, e.g. P00533 (read from the lock on a replay)')
+    ap.add_argument('--name', help='short name for the target (read from the lock on a replay)')
     ap.add_argument('--region', help='LO-HI in UniProt numbering; keep only '
                                      'structures overlapping it')
     ap.add_argument('--limit', type=int, default=30,
@@ -179,9 +208,24 @@ def main():
     os.makedirs(cache, exist_ok=True)
 
     lock = json.load(open(args.from_lock)) if args.from_lock else None
+    snap = None
     if lock:
+        if args.uniprot and args.uniprot != lock['uniprot']:
+            sys.exit(f'--uniprot {args.uniprot} does not match the lock ({lock["uniprot"]})')
+        args.uniprot = lock['uniprot']
+        args.name = args.name or lock['target']
         print(f'Replaying {args.from_lock}: {len(lock["structures"])} structures '
               f'recorded on {lock["generated"][:10]}')
+        sn = lock.get('snapshot')
+        if sn:
+            sp = os.path.join(os.path.dirname(os.path.abspath(args.from_lock)), sn['file'])
+            if not os.path.exists(sp):
+                sys.exit(f'the lock names {sn["file"]} next to it, and it is missing')
+            if sha256_of(sp) != sn['sha256']:
+                sys.exit(f'{sn["file"]} does not match the hash in the lock; it was edited')
+            snap = json.load(open(sp))
+    elif not (args.uniprot and args.name):
+        ap.error('--uniprot and --name are required unless --from-lock is given')
 
     print(f'Target: {args.name} ({args.uniprot})   output: {out}')
 
@@ -190,7 +234,19 @@ def main():
            'For HER2 this was nine Amass queries, and the structure list came\n'
            'from one field of an Amass gene record. Here the same list is read\n'
            'from the UniProt entry, so the demo needs no account.')
-    seq, fullname, pdbs, doms, sig, ecd = uniprot_entry(args.uniprot)
+    if snap:
+        u = snap['uniprot']
+        seq, fullname, sig = u['sequence'], u['full_name'], u['signal']
+        pdbs = [{'id': p['id'], 'range': tuple(p['range']) if p['range'] else None}
+                for p in u['pdbs']]
+        doms = [(n, a, b) for n, a, b in u['domains']]
+        ecd = tuple(u['ecd']) if u['ecd'] else None
+        print('        read from the snapshot beside the lock; no network call')
+    else:
+        seq, fullname, pdbs, doms, sig, ecd = uniprot_entry(args.uniprot)
+        if lock:
+            print('        ! this lock has no snapshot, so UniProt is read live and a change '
+                  'there could change the result')
     fasta = os.path.join(out, f'{args.uniprot}.fasta')
     with open(fasta, 'w') as fh:
         fh.write(f'>{args.uniprot}\n')
@@ -223,7 +279,7 @@ def main():
         chosen = [byid.get(x['id'], {'id': x['id'], 'range': None})
                   for x in lock['structures']]
         region = tuple(lock['region']) if lock.get('region') else None
-        print(f'        the lock names {len(chosen)} structures; today the entry lists '
+        print(f'        the lock names {len(chosen)} structures; the entry listed '
               f'{len(pdbs)}')
         gone = [x['id'] for x in lock['structures'] if x['id'] not in byid]
         if gone:
@@ -275,11 +331,15 @@ def main():
             if not lock else list(lock.get('exclude_uniprot') or []))
     if lock and accs:
         print(f'        relatives from the lock: {", ".join(accs)}')
+    rel_seqs = {}
     if accs:
         excl_path = os.path.join(out, 'relatives.fasta')
+        for a in accs:
+            rel_seqs[a] = (snap['relatives'][a] if snap and a in snap.get('relatives', {})
+                           else get(f'https://rest.uniprot.org/uniprotkb/{a}.fasta').decode())
         with open(excl_path, 'w') as fh:
             for a in accs:
-                fh.write(get(f'https://rest.uniprot.org/uniprotkb/{a}.fasta').decode())
+                fh.write(rel_seqs[a])
         print(f'        relatives to exclude: {", ".join(accs)}')
 
     # ---------------------------------------------------------------- 3 ----
@@ -325,15 +385,24 @@ def main():
            '--domains', dom_arg, '--only', ','.join(ok), '--out', atlas_out]
     if excl_path:
         cmd += ['--exclude', excl_path]
+    ent_doc = None
     try:
-        ent_path, n_ent = fetch_entities(ok, os.path.join(out, 'entities.json'))
+        if snap and snap.get('entities'):
+            ent_path = os.path.join(out, 'entities.json')
+            with open(ent_path, 'w') as fh:
+                json.dump(snap['entities'], fh, sort_keys=True)
+            n_ent = len(snap['entities']['data']['entries'])
+        else:
+            ent_path, n_ent = fetch_entities(ok, os.path.join(out, 'entities.json'))
     except Exception as e:
         ent_path, n_ent = None, 0
         print(f'        ! chain names unavailable ({str(e)[:50]}); '
               f'binders will be unnamed')
     if ent_path:
+        ent_doc = json.load(open(ent_path))
         cmd += ['--entities', ent_path]
-        print(f'        chain names and resolutions for {n_ent} entries from the PDB')
+        print(f'        chain names and resolutions for {n_ent} entries from '
+              f'{"the snapshot" if snap else "the PDB"}')
     print(f'        running atlas.py over {len(ok)} files ...')
     r = subprocess.run(cmd, capture_output=True, text=True)
     atlas_log = os.path.join(out, 'atlas.log')
@@ -536,28 +605,50 @@ def main():
     # The lock is what makes a rerun the same run: the exact entries, the hash of
     # each file, the reference that was chosen, and the sequence they were
     # numbered against. Replay it with --from-lock.
+    # The snapshot holds everything else a run reads from the network: the UniProt
+    # facts, the sequences of the relatives, and the PDB's chain names. With it a
+    # replay needs the structure files and nothing more.
+    snap_out = os.path.join(out, 'inputs.snapshot.json')
+    with open(snap_out, 'w') as fh:
+        json.dump({'schema': 'epitope-pipeline-snapshot/1',
+                   'uniprot': {'accession': args.uniprot, 'full_name': fullname,
+                               'sequence': seq, 'signal': sig,
+                               'domains': [list(d) for d in doms],
+                               'ecd': list(ecd) if ecd else None,
+                               'pdbs': [{'id': p['id'],
+                                         'range': list(p['range']) if p['range'] else None}
+                                        for p in pdbs]},
+                   'relatives': rel_seqs,
+                   'entities': ent_doc},
+                  fh, sort_keys=True, separators=(',', ':'))
+        fh.write('\n')
+
     lock_out = os.path.join(out, 'inputs.lock.json')
     with open(lock_out, 'w') as fh:
-        json.dump({'schema': 'epitope-pipeline-lock/1',
+        json.dump({'schema': 'epitope-pipeline-lock/2',
                    'generated': datetime.datetime.now(datetime.timezone.utc)
                                 .replace(microsecond=0).isoformat(),
                    'target': args.name, 'uniprot': args.uniprot,
                    'sequence_sha256': seq_sha, 'sequence_length': len(seq),
                    'region': list(region) if region else None,
-                   'limit': args.limit,
+                   'limit': lock['limit'] if lock else args.limit,
                    'exclude_uniprot': accs,
                    'reference': {'pdb': ref_pdb, 'chain': ref_chain,
                                  'offset': ref_off, 'modelled': ref_n},
-                   'structures': [{'id': p, 'sha256': hashes[p]} for p in ok]},
+                   'structures': [{'id': p, 'sha256': hashes[p]} for p in ok],
+                   'snapshot': {'file': os.path.basename(snap_out),
+                                'sha256': sha256_of(snap_out)}},
                   fh, indent=2)
         fh.write('\n')
     summary['lock'] = lock_out
+    summary['snapshot'] = snap_out
 
     # Paths relative to the output directory. An absolute path records whose
     # laptop the run happened on, and these files get committed and published.
     def rel(x):
         return os.path.relpath(x, out) if isinstance(x, str) and os.path.isabs(x) else x
     summary['lock'] = rel(summary['lock'])
+    summary['snapshot'] = rel(summary['snapshot'])
     summary['outputs'] = {k: rel(v) for k, v in summary['outputs'].items()}
     summary['hotspot_files'] = {k: rel(v) for k, v in summary['hotspot_files'].items()}
     summary['viewer'] = rel(summary['viewer'])

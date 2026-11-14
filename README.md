@@ -43,18 +43,23 @@ reverses which epitope looks most popular.
 
 ## Reproducibility
 
-Every run writes **`inputs.lock.json`**: the exact PDB entries used, the SHA-256 of each file
-as downloaded, the reference structure chosen, and a hash of the UniProt sequence everything
-was numbered against.
+Every run writes two files that pin it:
+
+- **`inputs.lock.json`**: the exact PDB entries used, the SHA-256 of each file as downloaded,
+  the reference structure chosen, the relatives excluded, and a hash of the UniProt sequence
+  everything was numbered against.
+- **`inputs.snapshot.json`**: everything else the run reads from the network. That is the
+  UniProt facts (sequence, domains, topology), the sequences of the excluded relatives, and the
+  PDB's chain names and resolutions. The lock holds its hash.
 
 ```bash
-python3 -I pipeline/run_pipeline.py --uniprot P00533 --name EGFR \
-    --from-lock examples/egfr/inputs.lock.json --out runs/egfr-replay
+python3 -I pipeline/run_pipeline.py --from-lock examples/egfr/inputs.lock.json --out runs/egfr-replay
 ```
 
-A replay uses that exact list and that exact reference, and checks every file against its
-recorded hash. If a structure has been re-deposited, or UniProt has changed the sequence, it
-says so instead of quietly producing a different answer.
+A replay uses that exact list, that exact reference and that exact metadata, and checks every
+file against its recorded hash. Once the structure files are cached it needs **no network at
+all**. If a structure has been re-deposited it says so, instead of quietly producing a
+different answer.
 
 Without the lock a rerun is not the same run: the PDB grows, so `--limit` takes a different
 set, and the reference the scan picks can change with it.
@@ -68,9 +73,12 @@ between antigens cannot leak another antigen's structures into the atlas.
 ./reproduce.sh
 ```
 
-This replays both locks and compares the result against the committed `summary.json`. It
-prints a line per number and exits non-zero on any difference. It downloads about 120 MB the
-first time and caches it.
+This replays both locks, then replays them again with the network blocked, and compares each
+result against the committed `summary.json`. It prints a line per number and exits non-zero on
+any difference. It downloads about 110 MB the first time and caches it.
+
+Replays on Python 3.9, 3.13 and 3.14 give identical result files. Only timestamps and the run
+folder's own path differ.
 
 **Check the maths without a network:**
 
@@ -88,12 +96,12 @@ and below 0.5 for unrelated ones. This runs on every push.
 
 | Option | |
 |---|---|
-| `--uniprot ACC` | the antigen. Required. |
-| `--name NAME` | a short name for the output files. Required. |
+| `--uniprot ACC` | the antigen. Required, unless `--from-lock` supplies it. |
+| `--name NAME` | a short name for the output files. Required, unless `--from-lock` supplies it. |
 | `--limit N` | how many structures to download (default 30). The first N of those that pass the region filter. |
 | `--region LO-HI` | keep only structures covering these residues. Default: the extracellular part, from the UniProt entry's own topology annotation. |
 | `--exclude-uniprot A,B` | close relatives of the antigen. Their chains bind as receptor partners, not as drugs, and counting them as binders distorts the result. |
-| `--from-lock PATH` | replay a previous run exactly. |
+| `--from-lock PATH` | replay a previous run exactly, offline once the structures are cached. |
 | `--out DIR` | where everything goes. |
 | `--cache DIR` | where structure files live (default `OUT/pdb-cache`). Share one across runs. |
 
@@ -102,19 +110,20 @@ and below 0.5 for unrelated ones. This runs on every push.
 | File | |
 |---|---|
 | `inputs.lock.json` | the exact inputs, for replay |
+| `inputs.snapshot.json` | the network data the run read, so a replay needs no network |
 | `summary.json` | every headline number |
 | `atlas-out/atlas.json` | each binder, its epitope, its cluster, per-residue counts |
 | `atlas-out/binders.pdb` | every binder superposed into one frame |
 | `props.json` | per-residue exposure, hydrophobicity, burial |
 | `target/<name>_hotspots.txt` | the hotspot list, every residue letter verified against the structure |
-| `viewer/index.html` | a 3D page, the surface coloured by binder density |
-| `run.log`, `atlas.log` | the full run, including everything skipped and why |
+| `viewer/index.html` | a 3D page, the surface coloured by binder density. Serve it with `python3 -m http.server --directory runs/egfr/viewer`; a browser will not load its data files from a `file://` page |
+| `atlas.log` | the full atlas run, including everything skipped and why |
 
 ---
 
 ## Examples
 
-`examples/her2` and `examples/egfr` hold a lock, a summary and a log for each. They are the
+`examples/her2` and `examples/egfr` hold a lock, a snapshot, a summary and a saved log for each. They are the
 pipeline's output, not its purpose — the point is that you can run it on your own antigen and
 on whatever is in the PDB today.
 
