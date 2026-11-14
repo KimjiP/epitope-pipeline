@@ -1,0 +1,74 @@
+{
+  "target": "HER2",
+  "uniprot": "P04626",
+  "full_name": "Receptor tyrosine-protein kinase erbB-2",
+  "sequence_length": 1255,
+  "structures_listed": 63,
+  "structures_used": 49,
+  "reference": "8PWH chain E",
+  "reference_offset": 22,
+  "complexes": 31,
+  "units": 36,
+  "distinct_binders": 24,
+  "numbering_conventions": {
+    "same as the reference": 16,
+    "construct, offset +500 from the reference": 1,
+    "UniProt numbering": 14
+  },
+  "unit_formats": {
+    "Fab": 22,
+    "scFv": 2,
+    "Affibody": 1,
+    "DARPin": 2,
+    "Fcab (engineered Fc)": 2,
+    "VHH": 4,
+    "Repebody": 1,
+    "single domain (VHH-sized)": 1,
+    "antibody fragment": 1
+  },
+  "domains_uniprot": [
+    {
+      "name": "Protein-kinase-1",
+      "first": 720,
+      "last": 987
+    }
+  ],
+  "most_targeted_patch": {
+    "first_uniprot": 167,
+    "last_uniprot": 190,
+    "distinct_binders": 8,
+    "binders": [
+      "anti-ErbB2 antibody chA21 (3H3B)",
+      "Antibody (3WLW)",
+      "Designed Ankyrin Repeat Protein 9_29 (4HRL)",
+      "Nanobody 2Rs15d (5MY6)",
+      "MF3958 (5O4G)",
+      "anti-HER2 humanized antibody HuA21 (6J71)",
+      "H2Mab-119 (8JYR)",
+      "VHH nanobody 47D05 (9MTE)"
+    ]
+  },
+  "hotspot_files": {
+    "her2_hotspots.txt": "target/her2_hotspots.txt",
+    "her2_numbering.json": "target/her2_numbering.json",
+    "her2_target.pdb": "target/her2_target.pdb"
+  },
+  "viewer": "viewer/index.html",
+  "outputs": {
+    "atlas": "atlas-out/atlas.json",
+    "binders": "atlas-out/binders.pdb",
+    "props": "props.json",
+    "sequence": "P04626.fasta",
+    "atlas_log": "atlas.log"
+  },
+  "correlations": {
+    "n_exposed": 442,
+    "hydrophobic_vs_density": 0.06,
+    "burial_vs_density": -0.212,
+    "rsasa_vs_density": 0.23,
+    "hydrophobic_vs_binders": 0.049,
+    "burial_vs_binders": -0.179,
+    "rsasa_vs_binders": 0.226
+  },
+  "lock": "inputs.lock.json"
+}

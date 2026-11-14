@@ -1,0 +1,87 @@
+{
+  "target": "EGFR",
+  "uniprot": "P00533",
+  "full_name": "Epidermal growth factor receptor",
+  "sequence_length": 1210,
+  "structures_listed": 388,
+  "structures_used": 40,
+  "reference": "3NJP chain A",
+  "reference_offset": 24,
+  "complexes": 33,
+  "units": 37,
+  "distinct_binders": 19,
+  "numbering_conventions": {
+    "same as the reference": 33
+  },
+  "unit_formats": {
+    "small scaffold": 16,
+    "Fab": 11,
+    "other": 3,
+    "single domain (VHH-sized)": 1,
+    "VHH": 5,
+    "Repebody": 1
+  },
+  "domains_uniprot": [
+    {
+      "name": "Approximate-1",
+      "first": 75,
+      "last": 300
+    },
+    {
+      "name": "Approximate-2",
+      "first": 390,
+      "last": 600
+    },
+    {
+      "name": "Protein-kinase-3",
+      "first": 712,
+      "last": 979
+    }
+  ],
+  "most_targeted_patch": {
+    "first_uniprot": 435,
+    "last_uniprot": 458,
+    "distinct_binders": 16,
+    "binders": [
+      "epidermal growth factor (1NQL)",
+      "Transforming Growth Factor alpha (1MOX)",
+      "Cetuximab Fab Heavy chain + Cetuximab Fab Li (1YY9)",
+      "IMC-11F8 Fab Heavy chain + IMC-11F8 Fab Ligh (3B2U)",
+      "IMC-11F8 FAB Heavy chain + IMC-11F8 FAB Ligh (3B2V)",
+      "Matuzumab Fab Heavy chain + Matuzumab Fab Li (3C09)",
+      "Fab DL11 (3P0Y)",
+      "Nanobody/VHH domain 7D12 (4KRM)",
+      "Nanobody/VHH domain EgA1 (4KRO)",
+      "Nanobody/VHH domain 9G8 (4KRP)",
+      "REPEBODY (RAC1) (4UIP)",
+      "Panitumumab Fab (5SX5)",
+      "Proepiregulin (7LEN)",
+      "Epigen (5WB8)",
+      "VH chain of 059-152 + VL chain of 059-152 (5XWD)",
+      "Necitumumab Fab Heavy chain + Necitumumab Fa (6B3S)"
+    ]
+  },
+  "hotspot_files": {
+    "egfr_hotspots.txt": "target/egfr_hotspots.txt",
+    "egfr_numbering.json": "target/egfr_numbering.json",
+    "egfr_target.pdb": "target/egfr_target.pdb"
+  },
+  "viewer": "viewer/index.html",
+  "outputs": {
+    "atlas": "atlas-out/atlas.json",
+    "binders": "atlas-out/binders.pdb",
+    "props": "props.json",
+    "sequence": "P00533.fasta",
+    "atlas_log": "atlas.log"
+  },
+  "correlations": {
+    "n_exposed": 425,
+    "hydrophobic_vs_density": -0.024,
+    "burial_vs_density": 0.04,
+    "rsasa_vs_density": 0.025,
+    "hydrophobic_vs_binders": 0.005,
+    "burial_vs_binders": 0.053,
+    "rsasa_vs_binders": 0.013
+  },
+  "lock": "inputs.lock.json"
+}

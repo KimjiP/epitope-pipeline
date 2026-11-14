@@ -1,0 +1,16 @@
+# Downloaded structure files. The locks name them and their hashes; reproduce.sh
+# fetches them again. Hundreds of megabytes, never committed.
+.cache/
+.replay/
+runs/
+pdb-cache/
+*.cif
+
+# Derived coordinates, rebuilt by any run
+*_target.pdb
+binders.pdb
+antigen.pdb
+
+__pycache__/
+*.pyc
+.DS_Store

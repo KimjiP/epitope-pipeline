@@ -1,0 +1,71 @@
+name: checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"        # Mondays: has the PDB moved under the examples?
+
+jobs:
+  # Every push. No network, a few seconds. Proves the maths and that the code
+  # runs on the oldest Python the README claims.
+  selftest:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Superposition and alignment self-test
+        run: python3 -I pipeline/atlas.py --selftest
+      - name: Every script compiles
+        run: python3 -m compileall -q pipeline
+
+  # sys.stdlib_module_names needs 3.10, so this is its own job rather than part
+  # of the version matrix.
+  stdlib-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: No dependencies outside the standard library
+        run: |
+          python3 - <<'PY'
+          import ast, pathlib, sys
+          std = set(sys.stdlib_module_names)
+          local = {p.stem for p in pathlib.Path("pipeline").glob("*.py")}
+          bad = []
+          for p in sorted(pathlib.Path("pipeline").glob("*.py")):
+              for node in ast.walk(ast.parse(p.read_text())):
+                  names = ([a.name for a in node.names] if isinstance(node, ast.Import)
+                           else [node.module or ""] if isinstance(node, ast.ImportFrom)
+                           else [])
+                  for n in names:
+                      root = n.split(".")[0]
+                      if root and root not in std and root not in local:
+                          bad.append(f"{p.name}: {n}")
+          print("\n".join(bad) if bad else "stdlib only")
+          sys.exit(1 if bad else 0)
+          PY
+
+  # Weekly and on demand. Downloads the locked structures and checks the
+  # pipeline still produces the committed numbers.
+  reproduce:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: .cache
+          key: pdb-${{ hashFiles('examples/*/inputs.lock.json') }}
+      - run: ./reproduce.sh

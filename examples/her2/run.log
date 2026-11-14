@@ -1,0 +1,92 @@
+Target: HER2 (P04626)   output: demo-her2
+
+STEP 1  Ask the literature what is already known
+        For HER2 this was nine Amass queries, and the structure list came
+        from one field of an Amass gene record. Here the same list is read
+        from the UniProt entry, so the demo needs no account.
+        Receptor tyrosine-protein kinase erbB-2
+        sequence 1255 residues  ->  demo-her2/P04626.fasta
+        63 structures listed on the entry
+        signal peptide 1-22: files may number from 23 or from 1, so numbering is recovered per file in step 3
+        1 annotated domains: Protein-kinase-1 720-987
+
+STEP 2  Collect every published structure of it
+        one field of one record listed them all; download the lot
+        keeping the 49 of 63 that overlap residues 23-652 (the extracellular part, per UniProt)
+        an antibody drug must reach its target from outside the cell
+        49 structure files in demo-her2/pdb-cache
+        relatives to exclude: P00533, P21860, Q15303
+
+STEP 3  Put them all in one coordinate frame
+        recover each file's own residue numbering, then superpose every complex
+        reference: 8PWH chain E, 624 modelled residues, offset +22
+        chain names and resolutions for 49 entries from the PDB
+        running atlas.py over 49 files ...
+        excluding chains that match: EGFR_HUMAN, ERBB3_HUMAN, ERBB4_HUMAN
+        31 of 49 entries used -> 36 units -> 24 distinct binders
+        31 complexes placed in one frame
+           16  same as the reference
+           14  UniProt numbering
+            1  construct, offset +500 from the reference
+
+STEP 4  Count distinct binders, not files
+        one antibody appears in six entries; collapse it to one
+        31 complexes  ->  36 binding units  ->  24 distinct binders
+        (one binder solved six times is one binder, not six)
+        shapes of the binding units:
+           22  Fab
+            4  VHH
+            2  scFv
+            2  DARPin
+            2  Fcab (engineered Fc)
+            1  Affibody
+        6 of 36 units are not antibody-shaped; check whether they belong:
+          Immunoglobulin G-binding protein A       Affibody  (3MZW)
+          Designed Ankyrin Repeat Protein 9_29     DARPin  (4HRL)
+          Designed Ankyrin Repeat Protein H10-2-G  DARPin  (4HRN)
+          Ig gamma-1 chain C region                Fcab (engineered Fc)  (5K33)
+          Ig gamma-1 chain C region                Fcab (engineered Fc)  (5KWG)
+          Repebody (Rb-H2)                         Repebody  (6LBX)
+        solved more than once:
+           7 x  Herceptin Fab (antibody) (1N8Z)    1N8Z, 3BE1, 6BGT, 6OGE, 7MN8
+           6 x  Pertuzumab Fab (9L1S)              1S78, 6OGE, 8FFJ, 8PWH, 8Q6J
+           2 x  EPS226 Fab (9T3S)                  9T3R, 9T3S
+        most-targeted patch: residues 167-190 (UniProt), hit by 8 of 24 distinct binders
+          anti-ErbB2 antibody ch, Antibody (3WLW), Designed Ankyrin Repea, Nanobody 2Rs15d (5MY6), MF3958 (5O4G), anti-HER2 humanized an ...
+
+STEP 5  Measure the surface and score every site
+        contacts, exposure, hydrophobicity, and what has precedent
+        exposed (rSASA >= 0.10): 442
+        burial range 33-208, median 134
+        most exposed hydrophobic residues: L528, V286, L295, V613, V107, V483, L586, L101
+        Does surface property predict where binders land?
+        Spearman rank correlation over the exposed residues, n = 442
+        hydrophobic  vs antibody-residue density: +0.060    vs distinct binders: +0.049
+        burial       vs antibody-residue density: -0.212    vs distinct binders: -0.179
+        rsasa        vs antibody-residue density: +0.230    vs distinct binders: +0.226
+        Bound (240) vs never bound (202), exposed residues only:
+        property           bound   unbound  reading
+        hydrophobic         0.30      0.22  exposed hydrophobic area, rSASA x KD
+        Kyte-Doolittle     -0.87     -1.08  raw hydrophobicity of the residue type
+        burial            111.40    120.07  antigen atoms within 10 A
+        rSASA               0.39      0.35  how exposed it is
+
+STEP 6  Hand over what a design model needs
+        a hotspot file a design model can read, and the measured data behind it
+        hotspots, in 8PWH chain E numbering: Q156,L157,A158,L159,T160,L161,R166,S167
+          the same residues in UniProt numbering: Q178,L179,A180,L181,T182,L183,R188,S189
+          (this file numbers from +22 against UniProt; the design model needs the file's own numbers)
+          demo-her2/target/her2_hotspots.txt
+          demo-her2/target/her2_numbering.json
+          demo-her2/target/her2_target.pdb
+        3D page: demo-her2/viewer/index.html
+        the measured data:
+        lock      demo-her2/inputs.lock.json
+        atlas     atlas-out/atlas.json
+        binders   atlas-out/binders.pdb
+        props     props.json
+        sequence  P04626.fasta
+        atlas_log atlas.log
+        summary   demo-her2/summary.json
+
+Same six steps, different target. HER2: 49 structures in, 24 distinct binders out.
