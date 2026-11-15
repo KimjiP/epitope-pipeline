@@ -3,64 +3,207 @@
   "uniprot": "P00533",
   "full_name": "Epidermal growth factor receptor",
   "sequence_length": 1210,
+  "signal_peptide": 24,
   "structures_listed": 388,
-  "structures_used": 40,
+  "structures_in_region": 57,
+  "structures_used": 57,
+  "sampled": false,
+  "limit": null,
+  "max_resolution": 4.0,
+  "released_through": "2026-06-03",
   "reference": "3NJP chain A",
   "reference_offset": 24,
-  "complexes": 33,
-  "units": 37,
-  "distinct_binders": 19,
+  "complexes": 45,
+  "units": 48,
+  "distinct_binders": 20,
+  "distinct_antibodies": 14,
+  "distinct_scaffolds": 2,
+  "distinct_other": 4,
+  "entries_skipped": {
+    "no chain covers the reference region": 8,
+    "resolution worse than 4 A": 2,
+    "antigen present, no contacting partner": 2
+  },
   "numbering_conventions": {
-    "same as the reference": 33
+    "same as the reference": 43,
+    "UniProt numbering": 2
   },
   "unit_formats": {
-    "small scaffold": 16,
-    "Fab": 11,
-    "other": 3,
-    "single domain (VHH-sized)": 1,
-    "VHH": 5,
-    "Repebody": 1
+    "other protein": 17,
+    "Fab": 14,
+    "Adnectin": 1,
+    "VHH": 6,
+    "Repebody": 1,
+    "Fv": 1,
+    "scFv": 8
   },
   "domains_uniprot": [
     {
-      "name": "Approximate-1",
-      "first": 75,
-      "last": 300
+      "name": "I",
+      "first": 25,
+      "last": 189
     },
     {
-      "name": "Approximate-2",
-      "first": 390,
-      "last": 600
+      "name": "II",
+      "first": 190,
+      "last": 333
     },
     {
-      "name": "Protein-kinase-3",
-      "first": 712,
-      "last": 979
+      "name": "III",
+      "first": 334,
+      "last": 505
+    },
+    {
+      "name": "IV",
+      "first": 506,
+      "last": 645
     }
   ],
   "most_targeted_patch": {
-    "first_uniprot": 435,
-    "last_uniprot": 458,
-    "distinct_binders": 16,
+    "basis": "antibodies and nanobodies",
+    "centre_uniprot": 441,
+    "radius_A": 10.0,
+    "domain": "III",
+    "hits": 7,
+    "of": 14,
+    "rule": "a binder hits when at least 3 of its contact residues, and at least 25% of them, lie in the sphere",
     "binders": [
-      "epidermal growth factor (1NQL)",
-      "Transforming Growth Factor alpha (1MOX)",
       "Cetuximab Fab Heavy chain + Cetuximab Fab Li (1YY9)",
       "IMC-11F8 Fab Heavy chain + IMC-11F8 Fab Ligh (3B2U)",
-      "IMC-11F8 FAB Heavy chain + IMC-11F8 FAB Ligh (3B2V)",
-      "Matuzumab Fab Heavy chain + Matuzumab Fab Li (3C09)",
       "Fab DL11 (3P0Y)",
       "Nanobody/VHH domain 7D12 (4KRM)",
-      "Nanobody/VHH domain EgA1 (4KRO)",
-      "Nanobody/VHH domain 9G8 (4KRP)",
-      "REPEBODY (RAC1) (4UIP)",
       "Panitumumab Fab (5SX5)",
-      "Proepiregulin (7LEN)",
-      "Epigen (5WB8)",
       "VH chain of 059-152 + VL chain of 059-152 (5XWD)",
-      "Necitumumab Fab Heavy chain + Necitumumab Fa (6B3S)"
-    ]
+      "heavy chain + light chain (9Z9E)"
+    ],
+    "touched_uniprot": [
+      406,
+      408,
+      439,
+      441,
+      442,
+      444,
+      462,
+      464,
+      465,
+      467,
+      490,
+      491,
+      492,
+      493
+    ],
+    "touched_runs_uniprot": "406,408,439,441-442,444,462,464-465,467,490-493",
+    "chance": {
+      "draws": 200,
+      "median": 3,
+      "p95": 5,
+      "p": 0.01
+    }
   },
+  "patch_by_basis": {
+    "antibodies and nanobodies": {
+      "basis": "antibodies and nanobodies",
+      "centre_uniprot": 441,
+      "radius_A": 10.0,
+      "domain": "III",
+      "hits": 7,
+      "of": 14,
+      "rule": "a binder hits when at least 3 of its contact residues, and at least 25% of them, lie in the sphere",
+      "binders": [
+        "Cetuximab Fab Heavy chain + Cetuximab Fab Li (1YY9)",
+        "IMC-11F8 Fab Heavy chain + IMC-11F8 Fab Ligh (3B2U)",
+        "Fab DL11 (3P0Y)",
+        "Nanobody/VHH domain 7D12 (4KRM)",
+        "Panitumumab Fab (5SX5)",
+        "VH chain of 059-152 + VL chain of 059-152 (5XWD)",
+        "heavy chain + light chain (9Z9E)"
+      ],
+      "touched_uniprot": [
+        406,
+        408,
+        439,
+        441,
+        442,
+        444,
+        462,
+        464,
+        465,
+        467,
+        490,
+        491,
+        492,
+        493
+      ],
+      "touched_runs_uniprot": "406,408,439,441-442,444,462,464-465,467,490-493",
+      "chance": {
+        "draws": 200,
+        "median": 3,
+        "p95": 5,
+        "p": 0.01
+      }
+    },
+    "all binders": {
+      "basis": "all binders",
+      "centre_uniprot": 441,
+      "radius_A": 10.0,
+      "domain": "III",
+      "hits": 9,
+      "of": 20,
+      "rule": "a binder hits when at least 3 of its contact residues, and at least 25% of them, lie in the sphere",
+      "binders": [
+        "Cetuximab Fab Heavy chain + Cetuximab Fab Li (1YY9)",
+        "IMC-11F8 Fab Heavy chain + IMC-11F8 Fab Ligh (3B2U)",
+        "Fab DL11 (3P0Y)",
+        "Nanobody/VHH domain 7D12 (4KRM)",
+        "REPEBODY (RAC1) (4UIP)",
+        "Panitumumab Fab (5SX5)",
+        "Epigen (5WB8)",
+        "VH chain of 059-152 + VL chain of 059-152 (5XWD)",
+        "heavy chain + light chain (9Z9E)"
+      ],
+      "touched_uniprot": [
+        406,
+        408,
+        439,
+        441,
+        442,
+        444,
+        462,
+        464,
+        465,
+        467,
+        490,
+        491,
+        492,
+        493
+      ],
+      "touched_runs_uniprot": "406,408,439,441-442,444,462,464-465,467,490-493",
+      "chance": {
+        "draws": 200,
+        "median": 4,
+        "p95": 6,
+        "p": 0.01
+      }
+    }
+  },
+  "quality": {
+    "units_fit_error_over_3A": 0,
+    "units_with_contacts_on_another_copy": 3,
+    "antigen_residues_skipped_for_insertion_codes": 0,
+    "downloads_failed": []
+  },
+  "hotspots_uniprot": [
+    "Q408",
+    "S442",
+    "G465",
+    "K467",
+    "I490",
+    "I491",
+    "S492",
+    "N493"
+  ],
+  "hotspot_rule": "touched by 2 or more binders and at least 20% exposed",
+  "hotspots_supported": true,
   "hotspot_files": {
     "egfr_hotspots.txt": "target/egfr_hotspots.txt",
     "egfr_numbering.json": "target/egfr_numbering.json",
@@ -76,12 +219,12 @@
   },
   "correlations": {
     "n_exposed": 425,
-    "hydrophobic_vs_density": -0.024,
-    "burial_vs_density": 0.04,
-    "rsasa_vs_density": 0.025,
-    "hydrophobic_vs_binders": 0.005,
-    "burial_vs_binders": 0.053,
-    "rsasa_vs_binders": 0.013
+    "hydrophobic_vs_density": -0.017,
+    "burial_vs_density": -0.023,
+    "rsasa_vs_density": 0.057,
+    "hydrophobic_vs_binders": 0.001,
+    "burial_vs_binders": 0.003,
+    "rsasa_vs_binders": 0.033
   },
   "lock": "inputs.lock.json",
   "snapshot": "inputs.snapshot.json"

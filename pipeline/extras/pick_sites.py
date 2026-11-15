@@ -16,11 +16,11 @@ Per residue, five streams, each one measured elsewhere in this project:
     competition  in the reference antibody's footprint, or near it in space.
                  The challenge requires the design to block trastuzumab, so
                  this is a requirement and not a preference.
-    precedent    how many of the 22 distinct published binders touch it.
+    precedent    how many distinct published binders touch it (counts_distinct in the atlas).
     exposure     relative SASA. Buried surface cannot be bound.
     anchor       exposed hydrophobic area, rSASA x Kyte-Doolittle where
                  positive. This is NOT evidence that antibodies go there —
-                 measured correlation with binder density is +0.03, i.e. none.
+                 the correlation with binder density is small (see surface_props.py).
                  It is included because a designed binder still needs
                  something to bury, which is a different claim.
     penalties    glycan sequon nearby, cysteine, unmodelled neighbours.
@@ -86,8 +86,12 @@ def main():
     P = json.load(open(args.props))['residues']
     A = json.load(open(args.atlas))
     cd = {int(k): v for k, v in A['counts_distinct'].items()}
-    FOOT = set(A['trastuzumab_footprint'])
-    NDIST = A.get('n_distinct', 22)
+    foot = (A.get('trastuzumab_footprint')
+            or (A.get('footprints', {}).get('trastuzumab') or {}).get('union'))
+    if not foot:
+        sys.exit('this atlas holds no trastuzumab footprint. Build one with atlas.py ... --name trastuzumab=1N8Z')
+    FOOT = set(foot)
+    NDIST = A.get('n_distinct', 0)
 
     atoms = parse(args.structure)
     ag = [a for a in atoms if a['ch'] == args.chain]

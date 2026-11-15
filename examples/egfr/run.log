@@ -1,4 +1,4 @@
-Replaying examples/egfr/inputs.lock.json: 40 structures recorded on 2026-11-14
+Replaying examples/egfr/inputs.lock.json: 57 structures recorded on 2026-11-15
 Target: EGFR (P00533)   output: runs/egfr-replay
 
 STEP 1  Read what is already known about the protein
@@ -8,12 +8,12 @@ STEP 1  Read what is already known about the protein
         sequence 1210 residues  ->  runs/egfr-replay/P00533.fasta
         388 structures listed on the entry
         signal peptide 1-24: files may number from 25 or from 1, so numbering is recovered per file in step 3
-        3 annotated domains: Approximate-1 75-300, Approximate-2 390-600, Protein-kinase-3 712-979
+        4 named domains: I 25-189, II 190-333, III 334-505, IV 506-645
 
 STEP 2  Collect the published structures of it
-        the list on the UniProt entry; download up to --limit of them
-        the lock names 40 structures; the entry listed 388
-        40 structure files in .cache
+        the list on the UniProt entry; download them
+        the lock names 57 structures; the entry listed 388
+        57 structure files in .cache
         every file matches the hash in the lock
         relatives from the lock: P04626, P21860, Q15303
         relatives to exclude: P04626, P21860, Q15303
@@ -21,39 +21,44 @@ STEP 2  Collect the published structures of it
 STEP 3  Put them all in one coordinate frame
         recover each file's own residue numbering, then superpose every complex
         reference: 3NJP chain A, 614 modelled residues, offset +24
-        chain names and resolutions for 40 entries from the snapshot
-        running atlas.py over 40 files ...
+        chain names and resolutions for 57 entries from the snapshot
+        running atlas.py over 57 files ...
         excluding chains that match: ERBB2_HUMAN, ERBB3_HUMAN, ERBB4_HUMAN
-        33 of 40 entries used -> 37 units -> 19 distinct binders
-        33 complexes placed in one frame
-           33  same as the reference
+        45 of 57 entries used -> 48 units -> 20 distinct binders
+        45 complexes placed in one frame
+           43  same as the reference
+            2  UniProt numbering
+        2 entries skipped: solved at a resolution worse than 4 A (--max-resolution 0 keeps them)
 
 STEP 4  Count distinct binders, not files
         one antibody appears in six entries; collapse it to one
-        33 complexes  ->  37 binding units  ->  19 distinct binders
+        45 complexes  ->  48 binding units  ->  20 distinct binders
+        of the 20: 14 antibodies and nanobodies, 2 engineered scaffolds, 4 other proteins
         (one binder solved six times is one binder, not six)
         shapes of the binding units:
-           16  small scaffold
-           11  Fab
-            5  VHH
-            3  other
-            1  single domain (VHH-sized)
+           17  other protein
+           14  Fab
+            8  scFv
+            6  VHH
+            1  Adnectin
             1  Repebody
-        20 of 37 units are not antibody-shaped; check whether they belong:
-          Epidermal growth factor                  small scaffold  (1IVO)
-          Transforming Growth Factor alpha         small scaffold  (1MOX)
-          epidermal growth factor                  small scaffold  (1NQL)
-          IMC-11F8 Fab Heavy chain + IMC-11F8 Fab  other  (3B2U)
-          Epidermal growth factor                  small scaffold  (3NJP)
-          REPEBODY (RAC1)                          Repebody  (4UIP)
+        4 distinct binders are other proteins (often the antigen's own ligands or receptors):
+          epidermal growth factor (1NQL)
+          Transforming Growth Factor alpha (1MOX)
+          Proepiregulin (7LEN)
+          Epigen (5WB8)
         solved more than once:
-           8 x  epidermal growth factor (1NQL)     1IVO, 1NQL, 3NJP, 7OM4, 7SYD
-           5 x  Proepiregulin (7LEN)               5WB7, 7LEN, 7LFR, 7LFS
+           9 x  epidermal growth factor (1NQL)     1IVO, 1NQL, 3NJP, 7SYD, 7SYE
+           8 x  528 Fv from LH-type bispecific dia 9IP7, 9IP8, 9IP9, 9IPA, 9IPB
            4 x  Cetuximab Fab Heavy chain + Cetuxi 1YY9, 4KRO, 4KRP, 6ARU
+           4 x  Proepiregulin (7LEN)               5WB7, 7LEN, 7LFR, 7LFS
            3 x  Transforming Growth Factor alpha ( 1MOX, 7SZ5, 7SZ7
-           2 x  Nanobody/VHH domain 7D12 (4KRM)    4KRL, 4KRM
-        most-targeted patch: residues 435-458 (UniProt), hit by 16 of 19 distinct binders
-          epidermal growth facto, Transforming Growth Fa, Cetuximab Fab Heavy ch, IMC-11F8 Fab Heavy cha, IMC-11F8 FAB Heavy cha, Matuzumab Fab Heavy ch ...
+        ! 3 units make 20% or more of their contacts with ANOTHER copy of the antigen. Only one copy is read, so their epitope is cut short.
+        most-targeted patch, antibodies and nanobodies: 7 of 14 touch the sphere (radius 10 A) around residue 441 (UniProt), III
+          chance: random footprints of the same sizes give a median of 3 (95th percentile 5); p = 0.01; above chance
+          Cetuximab Fab Heavy ch, IMC-11F8 Fab Heavy cha, Fab DL11 (3P0Y), Nanobody/VHH domain 7D, Panitumumab Fab (5SX5), VH chain of 059-152 +  ...
+        most-targeted patch, all binders: 9 of 20 touch the sphere (radius 10 A) around residue 441 (UniProt), III
+          chance: random footprints of the same sizes give a median of 4 (95th percentile 6); p = 0.01; above chance
 
 STEP 5  Measure the surface
         exposure, hydrophobicity, burial, and how many binders touch each amino acid
@@ -62,21 +67,22 @@ STEP 5  Measure the surface
         most exposed hydrophobic residues: L1, V255, L595, F357, I556, L325, I467, V6
         Does surface property predict where binders land?
         Spearman rank correlation over the exposed residues, n = 425
-        hydrophobic  vs antibody-residue density: -0.024    vs distinct binders: +0.005
-        burial       vs antibody-residue density: +0.040    vs distinct binders: +0.053
-        rsasa        vs antibody-residue density: +0.025    vs distinct binders: +0.013
-        Bound (128) vs never bound (297), exposed residues only:
+        hydrophobic  vs antibody-residue density: -0.017    vs distinct binders: +0.001
+        burial       vs antibody-residue density: -0.023    vs distinct binders: +0.003
+        rsasa        vs antibody-residue density: +0.057    vs distinct binders: +0.033
+        Bound (161) vs never bound (264), exposed residues only:
         property           bound   unbound  reading
-        hydrophobic         0.21      0.25  exposed hydrophobic area, rSASA x KD
-        Kyte-Doolittle     -1.33     -1.07  raw hydrophobicity of the residue type
-        burial            116.57    113.00  antigen atoms within 10 A
+        hydrophobic         0.24      0.24  exposed hydrophobic area, rSASA x KD
+        Kyte-Doolittle     -1.21     -1.11  raw hydrophobicity of the residue type
+        burial            113.29    114.55  antigen atoms within 10 A
         rSASA               0.39      0.38  how exposed it is
 
 STEP 6  Hand over what a design model needs
         a hotspot file a design model can read, and the measured data behind it
-        hotspots, in 3NJP chain A numbering: Q411,F412,A415,V417,S418,L419,E431,S433
-          the same residues in UniProt numbering: Q435,F436,A439,V441,S442,L443,E455,S457
+        hotspots, in 3NJP chain A numbering: Q384,S418,G441,K443,I466,I467,S468,N469
+          the same residues in UniProt numbering: Q408,S442,G465,K467,I490,I491,S492,N493
           (this file numbers from +24 against UniProt; the design model needs the file's own numbers)
+          each is touched by 2 or more binders and is at least 20% exposed in the free antigen
           runs/egfr-replay/target/egfr_hotspots.txt
           runs/egfr-replay/target/egfr_numbering.json
           runs/egfr-replay/target/egfr_target.pdb
@@ -90,4 +96,4 @@ STEP 6  Hand over what a design model needs
         atlas_log atlas.log
         summary   runs/egfr-replay/summary.json
 
-Same six steps, different target. EGFR: 40 structures in, 19 distinct binders out.
+Same six steps, different target. EGFR: 57 structures in, 20 distinct binders out (14 antibodies and nanobodies).

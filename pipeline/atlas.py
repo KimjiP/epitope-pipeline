@@ -4,7 +4,7 @@
 Usage:
     python3 atlas.py REF.cif REF_CHAIN REFERENCE.fasta CACHE_DIR
         [--exclude FASTA] [--entities JSON] [--name NAME=PDB ...]
-        [--cutoff 4.5] [--near 5.0] [--identity 0.95] [--min-cover 50]
+        [--cutoff 4.5] [--near 5.0] [--identity 0.95] [--min-cover 50] [--max-resolution 4.0]
         [--domains "I=1-195,II=196-319,..."] [--out DIR] [--selftest]
 
 Example:
@@ -20,18 +20,27 @@ What it does
    file records.
 3. Finds the other chains that touch the antigen. Chains of relatives of the
    antigen (--exclude) are receptor partners, not binders, and are dropped.
-4. Splits the binder chains into UNITS. A unit is a set of chains that touch
-   each other: one Fab, one nanobody, one scFv. A complex with two Fabs gives
-   two units. Counting entries instead of units counts one antibody once for
-   every entry it appears in, and counts a two-antibody complex as one binder.
+4. Splits the binder chains into UNITS: one Fab (a heavy chain with its light
+   chain), one nanobody, one scFv, or one non-antibody binder. Antibody chains
+   are found from their sequence (the J-region motif that ends a variable
+   domain), and two antibodies are never fused into one unit. A complex with
+   two Fabs gives two units. Counting entries instead of units counts one
+   antibody once for every entry it appears in.
 5. Superposes the antigen onto the reference (Horn's quaternion method) and
-   moves every unit into the reference frame.
-6. Groups units into DISTINCT BINDERS by sequence identity (Needleman-Wunsch).
-   Antibody chains are compared over the variable domain only, because two
-   different antibodies on one framework share most of their sequence.
+   moves every unit into the reference frame. Each binder is placed with a fit
+   on the antigen residues near ITS contacts (--local-radius), because one fit
+   over the whole chain misplaces binders when the antigen moved as a whole.
+6. Groups units into DISTINCT BINDERS. Antibodies: every chain type seen in
+   both units must have a variable domain at least --identity the same (the
+   lower of heavy and light counts), whatever the format. A unit that shows one
+   chain only joins a complete antibody with the same CDR3. Other binders are
+   compared over the whole chain. Entries worse than --max-resolution are
+   skipped: side-chain contacts mean little there.
 7. Counts, in the reference numbering, for every antigen residue:
       counts_units     how many units touch it
-      counts_distinct  how many distinct binders touch it
+      counts_distinct  how many distinct binders touch it. A binder touches a
+                       residue when it does so in at least half of its structures.
+      counts_distinct_union  the same, counting any one structure
       density_distinct antibody residues within --near of it, summed over
                        distinct binders (the most any one structure shows)
 8. With --name, builds a footprint for a named binder from ALL of its
@@ -42,7 +51,7 @@ numbering conventions can be compared directly.
 
 Stdlib only.
 """
-import sys, os, json, math, glob, argparse, random, string, datetime
+import sys, os, re, json, math, glob, argparse, random, string, datetime
 from collections import defaultdict
 
 # one single-character chain id per unit, so a viewer can select each binder
@@ -216,6 +225,87 @@ def nw_identity(a, b, match=2, mismatch=-1, gap=-2):
     return hits / max(n, m)
 
 
+def overlap_identity(a, b, match=2, mismatch=-1, gap=-2):
+    """Identity over the SHORTER of two sequences, aligned end to end with free end gaps.
+
+    A copy that starts or stops a few residues sooner than another scores the same as the
+    full one. nw_identity divides by the longer sequence and so punishes that; this one is
+    for antibody variable domains, whose ends differ from file to file."""
+    n, m = len(a), len(b)
+    if n == 0 or m == 0:
+        return 0.0
+    H = [[0] * (m + 1) for _ in range(n + 1)]
+    P = [[0] * (m + 1) for _ in range(n + 1)]       # 0 diagonal, 1 gap in b, 2 gap in a
+    for i in range(1, n + 1):
+        ai, Hi, Hp, Pi = a[i - 1], H[i], H[i - 1], P[i]
+        for j in range(1, m + 1):
+            s = Hp[j - 1] + (match if ai == b[j - 1] else mismatch)
+            u = Hp[j] + gap
+            l = Hi[j - 1] + gap
+            if s >= u and s >= l:
+                Hi[j] = s; Pi[j] = 0
+            elif u >= l:
+                Hi[j] = u; Pi[j] = 1
+            else:
+                Hi[j] = l; Pi[j] = 2
+    bi, bj, best = n, 0, H[n][0]                    # free trailing gaps: best cell of the last row or column
+    for j in range(m + 1):
+        if H[n][j] > best:
+            bi, bj, best = n, j, H[n][j]
+    for i in range(n + 1):
+        if H[i][m] > best:
+            bi, bj, best = i, m, H[i][m]
+    i, j, hits = bi, bj, 0
+    while i > 0 and j > 0:
+        p = P[i][j]
+        if p == 0:
+            if a[i - 1] == b[j - 1]:
+                hits += 1
+            i -= 1; j -= 1
+        elif p == 1:
+            i -= 1
+        else:
+            j -= 1
+    return hits / min(n, m)
+
+
+# ------------------------------------------------- antibody variable domains --
+
+# A variable domain ends in its J region: WGQGTLVTVSS in a heavy-type domain (VH, VHH),
+# FGGGTKLEIK in a light-type one. These motifs are conserved across species and germlines,
+# so they find a domain without a numbering program. Only the conserved core is required: the
+# last residues of the J region are often not modelled. A chain whose J region is missing
+# altogether is not recognised; the name-based fallback in classify() then applies.
+VH_J = re.compile(r'W[GA].G[TSAQ]..?[VL][TI]V[SF]?[SA]?')
+VL_J = re.compile(r'F[GA].G[TS]...[VLIMF][KRL]?')
+
+
+def v_domains(seq):
+    """Variable domains in one chain, left to right: [(kind, vseq, cdr3)].
+
+    kind is 'H' (heavy-type: VH or VHH) or 'L' (light-type). cdr3 is the stretch between the
+    last Cys and the J region, which is enough to tell two clones apart. A chain that holds
+    two or more domains is an scFv or a multivalent nanobody."""
+    out, pos = [], 0
+    while len(seq) - pos >= 95:
+        mh, ml = VH_J.search(seq, pos + 85), VL_J.search(seq, pos + 85)
+        cands = [(m.end(), k, m) for k, m in (('H', mh), ('L', ml)) if m]
+        if not cands:
+            break
+        end, kind, m = min(cands, key=lambda c: c[0])
+        start = pos
+        if out:                                     # a later domain: skip the Gly/Ser linker before it
+            while start < m.start() and seq[start] in 'GS':
+                start += 1
+        v = seq[start:end]
+        j = m.start() - start
+        c = v.rfind('C', 0, j)
+        cdr3 = v[c + 1:j] if c >= 0 and 4 <= j - c <= 40 else ''
+        out.append((kind, v, cdr3))
+        pos = end
+    return out
+
+
 # ---------------------------------------------------------- superposition --
 
 def jacobi(a, n):
@@ -387,60 +477,70 @@ def short_name(descs):
     return ' + '.join(out) or 'unnamed'
 
 
-def classify(descs, title, obs_lens):
+SCAFFOLD_WORDS = (('ankyrin', 'DARPin'), ('darpin', 'DARPin'), ('repebody', 'Repebody'),
+                  ('affibody', 'Affibody'), ('immunoglobulin g-binding protein a', 'Affibody'),
+                  ('adnectin', 'Adnectin'), ('monobody', 'Monobody'), ('lipocalin', 'Anticalin'),
+                  ('anticalin', 'Anticalin'), ('minibinder', 'Designed binder'),
+                  ('de novo', 'Designed binder'))
+
+
+def classify(descs, title, obs_lens, v=None, one_chain_both=False):
+    """(kind, format) of one binding unit.
+
+    kind  'antibody'  a variable domain was found in the sequence (or, failing that, the name says so)
+          'scaffold'  an engineered non-antibody binder: DARPin, repebody, affibody, Fcab, ...
+          'other'     anything else. Often the antigen's own ligand or receptor.
+    The sequence decides first. Names in the PDB are free text and often say only 'heavy chain'."""
     n = len(obs_lens)
     d = ' '.join(descs).lower()
     t = (title or '').lower()
-    if 'ankyrin' in d or 'darpin' in d:
-        return 'DARPin'
-    if 'repebody' in d:
-        return 'Repebody'
-    if 'nanobody' in d or 'vhh' in d:
-        return 'VHH'
-    if 'immunoglobulin g-binding protein a' in d or 'affibody' in d:
-        return 'Affibody'
+    if v:
+        if one_chain_both:
+            return 'antibody', 'scFv'
+        if v.get('H') and v.get('L'):
+            return 'antibody', ('Fab' if max(obs_lens) > 150 else 'Fv')
+        if v.get('H'):
+            multi = len(v['H']) > 1
+            return 'antibody', ('VHH' if multi or max(obs_lens) <= 160 else 'antibody fragment')
+        return 'antibody', 'antibody fragment'
+    for word, fmt in SCAFFOLD_WORDS:
+        if word in d:
+            return 'scaffold', fmt
     if 'ig gamma' in d and n == 1:
-        return 'Fcab (engineered Fc)'
-    if 'scfv' in d or 'single-chain' in d:
-        return 'scFv'
-    if n == 2 and any(w in d for w in ('fab', 'heavy', 'light', 'antibody', 'igg', 'vh', 'vl')):
-        return 'Fab'
-    if n == 2 and all(170 <= L <= 270 for L in obs_lens):
-        return 'Fab'
-    if n == 1 and ('heavy chain' in d or 'light chain' in d):
-        return 'antibody fragment'
-    if n == 1:
-        L = obs_lens[0]
-        if 'scfv' in t or 'single-chain' in t:
-            return 'scFv'
-        if L <= 80:
-            return 'small scaffold'
-        if L <= 150:
-            return 'single domain (VHH-sized)'
-        if 200 <= L <= 300:
-            return 'scFv'
-    return 'other'
-
-
-ANTIBODY_LIKE = ('Fab', 'scFv', 'antibody fragment')
-VARIABLE_DOMAIN = 125     # residues compared for antibody chains
+        return 'scaffold', 'Fcab (engineered Fc)'
+    if 'nanobod' in d or 'vhh' in d:
+        return 'antibody', 'VHH'
+    if 'scfv' in d or 'single-chain' in d or 'scfv' in t:
+        return 'antibody', 'scFv'
+    if any(w in d for w in ('fab', 'antibody', 'immunoglobulin', 'igg')) or ('heavy' in d and 'light' in d):
+        return 'antibody', ('Fab' if n == 2 else 'antibody fragment')
+    return 'other', 'other protein'
 
 
 def comparable_seq(seq, fmt):
-    """The part of a chain that carries the binding loops.
-    Antibody chains: the variable domain. Fcab: the CH3 domain, where the loops
-    were engineered (the CH2 domain is identical in every Fcab, and over the whole Fc two
-    different Fcabs look 97% the same). Other scaffolds: the whole chain."""
-    if fmt in ANTIBODY_LIKE:
-        return seq[:VARIABLE_DOMAIN]
-    if fmt.startswith('Fcab'):
-        return seq[-110:]
-    return seq
+    """The part of a chain that carries the binding loops. An Fcab (engineered Fc) is compared
+    over its CH3 domain, where the loops were engineered: the CH2 domain is the same in every
+    Fcab, and over the whole Fc two different Fcabs look 97% alike. Other binders: the whole chain."""
+    return seq[-110:] if fmt.startswith('Fcab') else seq
 
 
 def unit_identity(ua, ub):
-    """Mean identity of the best chain pairing, or 0 when the units differ in
-    format or chain count."""
+    """How alike two binding units are, 0 to 1.
+
+    Antibodies: every chain type (heavy, light) that BOTH units show must match. The score is the
+    LOWER of the variable-domain identities, so a shared light chain cannot hide a different heavy
+    chain. The format, the number of chains and the constant domains play no part: a Fab and an
+    scFv of one clone are one binder.
+    Other binders: the mean identity of the chains; 0 when the format or the chain count differ."""
+    if ua['kind'] != ub['kind']:
+        return 0.0
+    va, vb = ua.get('v'), ub.get('v')
+    if va and vb:
+        comps = [max(overlap_identity(x[0], y[0]) for x in va[t] for y in vb[t])
+                 for t in ('H', 'L') if va.get(t) and vb.get(t)]
+        return min(comps) if comps else 0.0
+    if va or vb:
+        return 0.0
     if ua['format'] != ub['format'] or len(ua['seqs']) != len(ub['seqs']):
         return 0.0
     A = [comparable_seq(s, ua['format']) for s in ua['seqs']]
@@ -448,13 +548,112 @@ def unit_identity(ua, ub):
     for a, b in zip(sorted(A, key=len), sorted(B, key=len)):
         if min(len(a), len(b)) < 0.6 * max(len(a), len(b)):
             return 0.0
+    # identity over the shorter chain: the same protein modelled a few residues longer or shorter
+    # (a different construct, a different disordered tail) is still the same binder
     if len(A) == 1:
-        return nw_identity(A[0], B[0])
+        return overlap_identity(A[0], B[0])
     if len(A) == 2:
-        straight = (nw_identity(A[0], B[0]) + nw_identity(A[1], B[1])) / 2
-        crossed = (nw_identity(A[0], B[1]) + nw_identity(A[1], B[0])) / 2
+        straight = (overlap_identity(A[0], B[0]) + overlap_identity(A[1], B[1])) / 2
+        crossed = (overlap_identity(A[0], B[1]) + overlap_identity(A[1], B[0])) / 2
         return max(straight, crossed)
-    return sum(nw_identity(a, b) for a, b in zip(A, B)) / len(A)
+    return sum(overlap_identity(a, b) for a, b in zip(A, B)) / len(A)
+
+
+def cluster_units(units, thr):
+    """Group binding units into distinct binders. Returns (groups, near_misses).
+
+    1. Complete antibodies (a heavy and a light variable domain seen) and all non-antibodies are
+       clustered with COMPLETE linkage: every pair in a group must reach the threshold. Single
+       linkage let one in-between unit chain two different clones into one binder.
+    2. A unit that shows only one chain (a VH with no modelled VL, a nanobody) joins the closest
+       complete antibody when its chain matches and its CDR3 is identical. It never joins two
+       groups together.
+    3. Single-chain units that match no complete antibody (nanobodies) are clustered among
+       themselves."""
+    byid = {u['id']: u for u in units}
+    memo = {}
+
+    def score(a, b):
+        k = (a, b) if a < b else (b, a)
+        if k not in memo:
+            memo[k] = unit_identity(byid[a], byid[b])
+        return memo[k]
+
+    def full(u):
+        return bool(u.get('v') and u['v'].get('H') and u['v'].get('L'))
+
+    def partial(u):
+        return bool(u.get('v')) and not full(u)
+
+    def complete_link(ids):
+        parent = {i: i for i in ids}
+        members = {i: [i] for i in ids}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]; x = parent[x]
+            return x
+        pairs = sorted(((score(a, b), a, b) for n, a in enumerate(ids) for b in ids[n + 1:]),
+                       key=lambda t: (-t[0], t[1], t[2]))
+        for s, a, b in pairs:
+            if s < thr:
+                break
+            ra, rb = find(a), find(b)
+            if ra != rb and all(score(x, y) >= thr for x in members[ra] for y in members[rb]):
+                parent[ra] = rb
+                members[rb] += members.pop(ra)
+        return list(members.values())
+
+    groups = complete_link([u['id'] for u in units if not partial(u)])
+    loose = []
+    for u in (x for x in units if partial(x)):
+        t = 'H' if u['v'].get('H') else 'L'
+        best = None
+        for gi, g in enumerate(groups):
+            for m in g:
+                vm = byid[m].get('v')
+                for x in u['v'][t]:
+                    for y in (vm or {}).get(t, []):
+                        s = overlap_identity(x[0], y[0])
+                        if s >= thr and (not x[1] or not y[1] or x[1] == y[1]):
+                            key = (s, len(g), -gi)
+                            if best is None or key > best[0]:
+                                best = (key, gi)
+        if best:
+            groups[best[1]].append(u['id'])
+        else:
+            loose.append(u['id'])
+    groups += complete_link(loose)
+    similar = [{'a': a, 'b': b, 'identity': round(s, 3)} for (a, b), s in memo.items() if 0.80 <= s < thr]
+    return groups, similar
+
+
+def local_fit(ent_ca, ref_ca, epitope, radius, fallback):
+    """Fit the antigen onto the reference on the rigid core around the binder's contacts.
+
+    One fit over the whole chain puts a binder in the wrong place when the antigen as a whole has
+    moved (EGFR, tethered against extended: up to 25 A). So the fit uses the antigen residues
+    within `radius` of the binder's contacts, and then drops, cycle by cycle, the residues that
+    sit more than 2 A (or twice the rmsd) from their partner, as structure-alignment programs do.
+    What is left is the domain the binder sits on. Returns (R, t, rmsd, n_residues, scope);
+    `fallback` is the whole-chain fit, used when too few residues are near the contacts."""
+    core = [ent_ca[r] for r in epitope if r in ent_ca]
+    if not core:
+        return tuple(fallback) + (0, 'global')
+    keep = [r for r, p in ent_ca.items()
+            if r in ref_ca and any(math.dist(p, q) <= radius for q in core)]
+    if len(keep) < 12:
+        return tuple(fallback) + (len(keep), 'global')
+    R, t, rmsd = superpose([ent_ca[r] for r in keep], [ref_ca[r] for r in keep])
+    for _ in range(5):
+        dev = {r: math.dist(apply_rt(R, t, ent_ca[r]), ref_ca[r]) for r in keep}
+        kept = [r for r in keep if dev[r] <= max(2.0, 2.0 * rmsd)]
+        if len(kept) < 12 or len(kept) == len(keep):
+            break
+        keep = kept
+        R, t, rmsd = superpose([ent_ca[r] for r in keep], [ref_ca[r] for r in keep])
+    return R, t, rmsd, len(keep), 'local'
+
 
 
 def load_entities(path):
@@ -469,6 +668,8 @@ def load_entities(path):
                 desc[c] = name
         info[e['rcsb_id']] = {'title': (e.get('struct') or {}).get('title', ''),
                               'resolution': res[0], 'method': ri.get('experimental_method'),
+                              'released': ((e.get('rcsb_accession_info') or {})
+                                           .get('initial_release_date') or '')[:10],
                               'desc': desc}
     return info
 
@@ -508,6 +709,11 @@ def main():
     ap.add_argument('--footprint-identity', type=float, default=0.98,
                     help='a named binder\'s footprint uses only members at least this '
                          'identical to it; engineered variants are listed apart')
+    ap.add_argument('--max-resolution', type=float, default=0.0, metavar='A',
+                    help='skip entries solved at a resolution worse than this, in A (0 = keep all). '
+                         'Side-chain contacts at 4.5 A mean little in a 7 A map.')
+    ap.add_argument('--local-radius', type=float, default=15.0, metavar='A',
+                    help='each binder is placed with a fit on the antigen residues this close to its contacts')
     ap.add_argument('--out', default='atlas-out')
     ap.add_argument('--only', metavar='IDS',
                     help='comma-separated PDB ids; use only these entries from the\n                          cache directory, whatever else is in it')
@@ -604,6 +810,11 @@ def main():
             entries.append({'pdb': pdb, 'status': 'unreadable'}); continue
         ch = chain_residues(atoms)
         meta = ents.get(pdb, {})
+        res_here = meta.get('resolution')
+        if args.max_resolution and res_here and res_here > args.max_resolution:
+            entries.append({'pdb': pdb, 'resolution': res_here,
+                            'status': f'resolution worse than {args.max_resolution:g} A'})
+            continue
 
         ag, offs = [], {}
         for c, res in ch.items():
@@ -649,56 +860,85 @@ def main():
                             'antigen_chain': c, 'offset': o, 'dropped_partners': dropped})
             continue
 
-        # units: chains that touch each other. A light chain that never touches the
-        # antigen still belongs to its Fab, so link through every candidate chain.
-        parent = {n: n for n in cand}
+        # Units. A Fab is a heavy chain with its light chain; an scFv or a nanobody is one chain.
+        # Chains are typed from their sequence, and each heavy chain is paired with the light chain
+        # it shares the most atom pairs with. Two antibodies are NEVER fused. (Fusing every pair of
+        # touching chains put a Fab together with its crystal-packing neighbour, a 3 to 6 chain
+        # "unit" that no other entry could match, and one drug was counted three times.)
+        # Chains with no variable domain are linked by contact, as before.
+        pts = {n: [p for _, p in cand[n]] for n in cand}
+        cseq = {n: seq_of(ch[n]) for n in cand}
+        cdom = {n: v_domains(cseq[n]) for n in cand}
+        ctype = {n: (None if not d else ('S' if len(d) > 1 else d[0][0])) for n, d in cdom.items()}
+        hs = [n for n in sorted(cand) if ctype[n] == 'H']
+        ls = [n for n in sorted(cand) if ctype[n] == 'L']
+        hl = sorted(((chain_pairs(pts[h], pts[l], args.cutoff, 10 ** 9), h, l) for h in hs for l in ls),
+                    key=lambda t: (-t[0], t[1], t[2]))
+        used, glist = set(), []
+        for k, h, l in hl:
+            if k >= args.link_pairs and h not in used and l not in used:
+                used |= {h, l}
+                glist.append([h, l])
+        glist += [[n] for n in sorted(cand) if ctype[n] is not None and n not in used]
+        plain = [n for n in sorted(cand) if ctype[n] is None]
+        parent = {n: n for n in plain}
+
         def find(x):
             while parent[x] != x:
                 parent[x] = parent[parent[x]]; x = parent[x]
             return x
-        pts = {n: [p for _, p in cand[n]] for n in cand}
-        names = sorted(cand)
-        for i, a in enumerate(names):
-            for b in names[i + 1:]:
+        for i, a in enumerate(plain):
+            for b in plain[i + 1:]:
                 if a in partners or b in partners:
                     if chain_pairs(pts[a], pts[b], args.cutoff, args.link_pairs) >= args.link_pairs:
                         parent[find(a)] = find(b)
-        groups = defaultdict(list)
-        for n in names:
-            groups[find(n)].append(n)
-        groups = {k: v for k, v in groups.items() if any(m in partners for m in v)}
+        by_root = defaultdict(list)
+        for n in plain:
+            by_root[find(n)].append(n)
+        glist += list(by_root.values())
+        groups = [g for g in glist if any(m in partners for m in g)]
 
-        sh_pairs = [(ats['CA'], ref_ca[r + shift]) for r, (comp, ats) in agres.items()
-                    if (r + shift) in ref_ca and 'CA' in ats]
+        ent_ca = {r + shift: ats['CA'] for r, (comp, ats) in agres.items() if 'CA' in ats}
+        sh_pairs = [(ent_ca[r], ref_ca[r]) for r in ent_ca if r in ref_ca]
         if len(sh_pairs) < 30:
             entries.append({'pdb': pdb, 'status': 'too few shared CA atoms to superpose'})
             continue
         R, t, rmsd = superpose([p[0] for p in sh_pairs], [p[1] for p in sh_pairs])
         modelled_by_entry[pdb] = set(modelled)
+        # other copies of the antigen in this entry: contacts to them are not part of the epitope
+        # (they may be crystal packing), but they are counted so that a quaternary epitope shows up
+        other_atoms = [(0, p) for c3 in ag if c3 != c
+                       for _, ats in intkeyed(ch[c3]).values() for p in ats.values()]
 
         proto = []
-        for members in sorted(groups.values(), key=lambda g: min(g)):
+        for members in sorted(groups, key=lambda g: min(g)):
             members = sorted(members, key=lambda x: -len(ch[x]))
             uatoms = [a for m in members for a in cand[m]]
             pairs, near = interface(ag_atoms, uatoms, args.cutoff, args.near)
             descs = [meta.get('desc', {}).get(m, '') for m in members]
             obs = [len(ch[m]) for m in members]
+            v = defaultdict(list)
+            for m in members:
+                for k, vs, c3 in cdom[m]:
+                    v[k].append((vs, c3))
+            both = any(len({k for k, _, _ in cdom[m]}) == 2 for m in members)
+            kind, fmt = classify(descs, meta.get('title'), obs, dict(v) or None, both)
+            other_pairs = (sum(interface(other_atoms, uatoms, args.cutoff, args.cutoff)[0].values())
+                           if other_atoms else 0)
             proto.append({'members': members, 'pairs': pairs, 'near': near, 'descs': descs,
-                          'obs': obs, 'format': classify(descs, meta.get('title'), obs),
-                          'seqs': [seq_of(ch[m]) for m in members],
-                          'n_pairs': sum(pairs.values())})
+                          'obs': obs, 'kind': kind, 'format': fmt, 'v': dict(v) or None,
+                          'seqs': [cseq[m] for m in members], 'n_pairs': sum(pairs.values()),
+                          'other_pairs': other_pairs})
 
-        # identical copies in one entry: only the copy that really binds is a binder
-        # Identical copies in one entry: only the copy that really binds is a
-        # binder. Index by position and re-read the list each time. Testing the
-        # loop variable instead let an entry with three or more identical
-        # copies drop the same one twice, which raised ValueError on an EGFR
-        # entry carrying four copies of nanobody 7D12.
+        # Identical copies in one entry: only the copy that really binds is a binder. Index by
+        # position and re-read the list each time. Testing the loop variable instead let an entry
+        # with three or more identical copies drop the same one twice, which raised ValueError on an
+        # EGFR entry carrying four copies of nanobody 7D12.
         gone = []
         for i in range(len(proto)):
             for j in range(i + 1, len(proto)):
                 a, b = proto[i], proto[j]
-                if a is None or b is None or unit_identity(a, b) < 0.95:
+                if a is None or b is None or unit_identity(a, b) < args.identity:
                     continue
                 wi, si = (i, j) if a['n_pairs'] < b['n_pairs'] else (j, i)
                 weak, strong = proto[wi], proto[si]
@@ -717,8 +957,11 @@ def main():
             members = pu['members']
             uid = f"U{len(units) + 1:02d}"
             code = CODES[len(units)]
-            # CA trace in the reference frame. Residues are numbered in order, the
+            # Each binder is placed with a fit on the antigen residues near ITS contacts, not on the
+            # whole chain. A CA trace in the reference frame. Residues are numbered in order, the
             # second chain from 1001, so a viewer breaks the trace between chains.
+            Ru, tu, rmsd_u, n_fit, scope = local_fit(ent_ca, ref_ca, sorted(pu['pairs']),
+                                                      args.local_radius, (R, t, rmsd))
             for k, m in enumerate(members):
                 n = 0
                 for key in sorted(ch[m]):
@@ -726,19 +969,23 @@ def main():
                     if 'CA' not in ats:
                         continue
                     n += 1
-                    x, y, z = apply_rt(R, t, ats['CA'])
+                    x, y, z = apply_rt(Ru, tu, ats['CA'])
                     serial += 1
                     trace_lines.append(
                         f"ATOM  {serial:>5d}  CA  {(comp if comp in AA3 else 'GLY'):>3.3} "
                         f"{code:1}{k * 1000 + n:>4d}    {x:>8.3f}{y:>8.3f}{z:>8.3f}"
-                        f"  1.00{min(99.99, rmsd):>6.2f}           C  ")
+                        f"  1.00{min(99.99, rmsd_u):>6.2f}           C  ")
             units.append({
                 'id': uid, 'pdb': pdb, 'chains': members,
                 'chains_touching_antigen': [m for m in members if m in partners],
                 'name': short_name(pu['descs']), 'descriptions': pu['descs'],
-                'format': pu['format'], 'observed_lengths': pu['obs'], 'seqs': pu['seqs'],
-                'resolution': meta.get('resolution'), 'rmsd': round(rmsd, 2),
+                'kind': pu['kind'], 'format': pu['format'], 'observed_lengths': pu['obs'],
+                'v': pu['v'], 'seqs': pu['seqs'],
+                'resolution': meta.get('resolution'), 'rmsd': round(rmsd_u, 2),
+                'rmsd_global': round(rmsd, 2), 'fit': scope, 'fit_residues': n_fit,
                 'epitope': sorted(pu['pairs']), 'n_pairs': pu['n_pairs'],
+                'other_copy_pairs': pu['other_pairs'],
+                'other_copy_share': round(pu['other_pairs'] / max(1, pu['other_pairs'] + pu['n_pairs']), 3),
                 'pairs': {str(r): n for r, n in sorted(pu['pairs'].items())},
                 'near': {str(r): len(sx) for r, sx in sorted(pu['near'].items())},
                 'chain_code': code,
@@ -764,24 +1011,10 @@ def main():
 
     # ---- distinct binders ---------------------------------------------------
     print(f"\ncomparing {len(units)} units for sequence identity ...")
-    parent = {u['id']: u['id'] for u in units}
-    def f2(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]; x = parent[x]
-        return x
-    ident, similar = {}, []
-    for i, ua in enumerate(units):
-        for ub in units[i + 1:]:
-            s = unit_identity(ua, ub)
-            ident[(ua['id'], ub['id'])] = s
-            if s >= args.identity:
-                parent[f2(ua['id'])] = f2(ub['id'])
-            elif s >= 0.80:
-                similar.append({'a': ua['id'], 'b': ub['id'], 'identity': round(s, 3)})
+    glist, similar = cluster_units(units, args.identity)
     byid = {u['id']: u for u in units}
-    groups = defaultdict(list)
-    for u in units:
-        groups[f2(u['id'])].append(u['id'])
+    groups = {min(g): sorted(g) for g in glist}
+    root_of = {m: root for root, g in groups.items() for m in g}
 
     # the named binders: the cluster of the unit with the most contacts in that entry
     named = {}
@@ -793,8 +1026,8 @@ def main():
         named[nm] = max(cand, key=lambda u: u['n_pairs'])['id']
 
     clusters = []
-    for k, (root, mem) in enumerate(sorted(groups.items(), key=lambda kv: min(kv[1])), 1):
-        nm = next((n for n, uid in named.items() if f2(uid) == root), None)
+    for k, (root, mem) in enumerate(sorted(groups.items()), 1):
+        nm = next((n for n, uid in named.items() if root_of[uid] == root), None)
         if nm:
             rep = named[nm]
         else:
@@ -802,7 +1035,8 @@ def main():
         clusters.append({'id': f'B{k:02d}', 'label': nm or byid[rep]['name'],
                          'display': (nm.capitalize() if nm else
                                      f"{byid[rep]['name'][:44]} ({byid[rep]['pdb']})"),
-                         'named': bool(nm), 'rep': rep, 'format': byid[rep]['format'],
+                         'named': bool(nm), 'rep': rep, 'kind': byid[rep]['kind'],
+                         'format': byid[rep]['format'],
                          'members': sorted(mem), 'pdbs': sorted({byid[m]['pdb'] for m in mem})})
         for m in mem:
             byid[m]['cluster'] = f'B{k:02d}'; byid[m]['is_representative'] = (m == rep)
@@ -810,14 +1044,14 @@ def main():
     # ---- lineage: does an antibody unit share a variable domain with a named binder? --
     for u in units:
         u['shares_chain_with'] = []
-        if u['format'] not in ANTIBODY_LIKE:
+        if u['kind'] != 'antibody' or not u.get('v'):
             continue
         for nm, uid in named.items():
             ru = byid[uid]
-            if ru['cluster'] == u['cluster']:
+            if ru['cluster'] == u['cluster'] or not ru.get('v'):
                 continue
-            best = max(nw_identity(sa[:VARIABLE_DOMAIN], sb[:VARIABLE_DOMAIN])
-                       for sa in u['seqs'] for sb in ru['seqs'])
+            best = max((overlap_identity(x[0], y[0]) for t in ('H', 'L')
+                        for x in u['v'].get(t, []) for y in ru['v'].get(t, [])), default=0.0)
             if best >= args.identity:
                 u['shares_chain_with'].append({'binder': nm, 'identity': round(best, 3)})
 
@@ -877,15 +1111,27 @@ def main():
             u['bin'] = 'other'
 
     # ---- counts, in the reference numbering ----------------------------------
-    cu, cd, dens = defaultdict(int), defaultdict(int), defaultdict(int)
+    # A binder TOUCHES a residue when it does so in at least half of its structures (in all of them
+    # when it was solved once or twice). The union over every structure gave a popular drug a larger
+    # footprint than any single structure shows: trastuzumab, 17 to 20 residues per structure, 28 in
+    # the union. counts_distinct_union keeps the inclusive version.
+    cu, cd, cdu, dens = defaultdict(int), defaultdict(int), defaultdict(int), defaultdict(int)
     for u in units:
         for r in u['epitope']:
             cu[r] += 1
     for cl in clusters:
         mem = [byid[m] for m in cl['members']]
-        seen = {r for u in mem for r in u['epitope']}
-        for r in seen:
+        tally = defaultdict(int)
+        for u in mem:
+            for r in u['epitope']:
+                tally[r] += 1
+        need = (len(mem) + 1) // 2
+        cl['epitope_core'] = sorted(r for r, k in tally.items() if k >= need)
+        cl['epitope_union'] = sorted(tally)
+        for r in cl['epitope_core']:
             cd[r] += 1
+        for r in cl['epitope_union']:
+            cdu[r] += 1
         best = defaultdict(int)
         for u in mem:
             for r, n in u['near'].items():
@@ -903,20 +1149,22 @@ def main():
             skipped[e['status']] += 1
 
     out = {
-        'schema': 2,
+        'schema': 3,
         'generated': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
         'reference': os.path.basename(args.ref), 'reference_chain': args.ref_chain,
         'reference_offset': ref_off, 'reference_last_residue': top,
         'cutoff': args.cutoff, 'near_cutoff': args.near, 'identity_threshold': args.identity,
-        'variable_domain_residues_compared': VARIABLE_DOMAIN,
+        'max_resolution': args.max_resolution or None, 'local_radius': args.local_radius,
         'domains': [{'name': n, 'first': a, 'last': b} for n, a, b in domains],
         'n_entries_searched': len(entries), 'n_entries_used': len(ok),
         'n_units': len(units), 'n_distinct': len(clusters),
+        'n_antibodies': sum(1 for c in clusters if c['kind'] == 'antibody'),
         'skipped': dict(skipped),
         'sites': json.load(open(args.sites)) if args.sites else {},
         'footprints': footprints,
         'counts_units': {str(k): v for k, v in sorted(cu.items())},
         'counts_distinct': {str(k): v for k, v in sorted(cd.items())},
+        'counts_distinct_union': {str(k): v for k, v in sorted(cdu.items())},
         'density_distinct': {str(k): v for k, v in sorted(dens.items())},
         'contacts_beyond_reference': beyond,
         'entries': entries, 'units': units, 'clusters': clusters,

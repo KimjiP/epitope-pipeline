@@ -74,7 +74,9 @@ def parse(path):
     for r in rows:
         if r[ix['group_PDB']] != 'ATOM' or r[ix['type_symbol']] == 'H':
             continue
+        ic = r[ix['pdbx_PDB_ins_code']] if 'pdbx_PDB_ins_code' in ix else '?'
         out.append(dict(ch=r[ix['auth_asym_id']], rs=int(r[ix['auth_seq_id']]),
+                        ic='' if ic in ('?', '.') else ic,
                         aa=r[ix['label_comp_id']], at=r[ix['label_atom_id']],
                         el=r[ix['type_symbol']],
                         xyz=(float(r[ix['Cartn_x']]), float(r[ix['Cartn_y']]),
@@ -154,9 +156,13 @@ def main():
         sys.exit(f'chain {args.chain} not found')
     for a, v in zip(atoms, sasa(atoms)):
         a['sasa'] = v
+    # Residues with an insertion code (52A beside 52) are not reported, as in atlas.py: keyed by
+    # number alone they would be merged into the residue before them. Their atoms still count
+    # towards the surface of their neighbours above.
     res = defaultdict(list)
     for a in atoms:
-        res[a['rs']].append(a)
+        if not a['ic']:
+            res[a['rs']].append(a)
     ids = sorted(res)
     aa1 = {r: AA3.get(res[r][0]['aa'], 'X') for r in ids}
 

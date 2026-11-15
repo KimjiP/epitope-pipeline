@@ -6,7 +6,8 @@ page reads its own title, numbers and colour scale from `page.json`, so the same
 file works for HER2, EGFR or anything else.
 
 The colouring is the measurement: each residue of the antigen is coloured by how
-many DISTINCT binders come within the atlas near-cutoff of it. Blue is none, red
+many DISTINCT binders touch it (4.5 A heavy-atom contact, in at least half of the
+binder's structures). Blue is none, red
 is the most. A popular antibody solved six times cannot vote six times.
 """
 import json, os
@@ -91,7 +92,7 @@ HTML = r"""<!doctype html>
       <button id="bPatch" aria-pressed="false">Zoom to patch</button>
     </div>
     <div class="grp">
-      <div class="lab">Distinct binders within reach</div>
+      <div class="lab">Distinct binders touching it</div>
       <div class="bar"></div>
       <div class="ends"><span>0</span><span id="dmax">—</span></div>
       <div class="note">One antibody solved six times counts once.</div>
@@ -142,6 +143,7 @@ async function main(){
   }
 
   const v = $3Dmol.createViewer('gl', {backgroundColor: 'white'});
+  window.viewer = v;       // for people who want to script the page, or save a picture: viewer.pngURI()
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   v.setBackgroundColor(dark ? 0x151513 : 0xFBFBF9);
 
@@ -169,7 +171,7 @@ async function main(){
     v.render();
   }
 
-  let mode = 'surface', show = false;
+  let mode = 'surface', show = new URLSearchParams(location.search).has('binders');   // ?binders opens with every binder drawn
   const sync = () => {
     $('#bSurf').setAttribute('aria-pressed', mode === 'surface');
     $('#bCart').setAttribute('aria-pressed', mode === 'cartoon');

@@ -26,6 +26,8 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Superposition and alignment self-test
         run: python3 -I pipeline/atlas.py --selftest
+      - name: Unit tests (no network)
+        run: python3 -I -m unittest discover -s tests -v
       - name: Every script compiles
         run: python3 -m compileall -q pipeline
 
@@ -43,9 +45,9 @@ jobs:
           python3 - <<'PY'
           import ast, pathlib, sys
           std = set(sys.stdlib_module_names)
-          local = {p.stem for p in pathlib.Path("pipeline").glob("*.py")}
+          local = {p.stem for p in pathlib.Path("pipeline").rglob("*.py")}
           bad = []
-          for p in sorted(pathlib.Path("pipeline").glob("*.py")):
+          for p in sorted(pathlib.Path("pipeline").rglob("*.py")):
               for node in ast.walk(ast.parse(p.read_text())):
                   names = ([a.name for a in node.names] if isinstance(node, ast.Import)
                            else [node.module or ""] if isinstance(node, ast.ImportFrom)
@@ -58,8 +60,8 @@ jobs:
           sys.exit(1 if bad else 0)
           PY
 
-  # Weekly and on demand. Downloads the locked structures and checks the
-  # pipeline still produces the committed numbers.
+  # Weekly and on demand. Downloads the locked structures, checks the pipeline still
+  # produces the committed numbers, then runs the scientific checks on what it wrote.
   reproduce:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
@@ -73,3 +75,5 @@ jobs:
           path: .cache
           key: pdb-${{ hashFiles('examples/*/inputs.lock.json') }}
       - run: ./reproduce.sh
+      - name: Scientific checks on the replayed examples
+        run: python3 -I -m unittest discover -s tests -v

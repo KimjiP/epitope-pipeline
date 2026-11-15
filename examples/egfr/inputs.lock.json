@@ -1,15 +1,19 @@
 {
-  "schema": "epitope-pipeline-lock/2",
-  "generated": "2026-11-14T15:18:05+00:00",
+  "schema": "epitope-pipeline-lock/3",
+  "generated": "2026-11-15T14:32:55+00:00",
   "target": "EGFR",
   "uniprot": "P00533",
   "sequence_sha256": "dbb4583267ad40a7dfd854ee3c44ce4be38e137d0570e3eb76cf1854a74e7246",
   "sequence_length": 1210,
-  "region": [
-    25,
-    645
+  "regions": [
+    [
+      25,
+      645
+    ]
   ],
-  "limit": 40,
+  "limit": null,
+  "structures_in_region": 57,
+  "max_resolution": 4.0,
   "exclude_uniprot": [
     "P04626",
     "P21860",
@@ -181,10 +185,78 @@
     {
       "id": "7SZ7",
       "sha256": "75ce4aa3580c6b69c7aba93de1ab4a1677a3cd032ad74b81816791b0dc2fa1e6"
+    },
+    {
+      "id": "8HGO",
+      "sha256": "1542cf3f3ea2c2fd08e97ac9334d425cdcaee25a81502223463402f3f80968c2"
+    },
+    {
+      "id": "8HGP",
+      "sha256": "8146b1f348401c6f8a8f5e09c2a858d404ba1aa7399fba2ca44eb2b6df1fae79"
+    },
+    {
+      "id": "8HGS",
+      "sha256": "a9efc2df7d169b170c5d52186e19ede0927d62411314a3d6bc121bdd9a4cf186"
+    },
+    {
+      "id": "8UKV",
+      "sha256": "4b8b0710385b928d073d6dc1fb42c1c8baea20a6cbc89b700b07c57e8c0f0eea"
+    },
+    {
+      "id": "8UKW",
+      "sha256": "2559deef2ea4ac812d99138c3824fdbbfd630b1170643c85e9a7d6d7561c6e90"
+    },
+    {
+      "id": "8UKX",
+      "sha256": "4d6e2fcffa9743553cf27e61e6f31b50ed35020f993737a5bd3c552b835bbf26"
+    },
+    {
+      "id": "9IP7",
+      "sha256": "c598019973bd4ab391df68cc36ce9ea61c754148fb24d36f8f233b41a8ef86ae"
+    },
+    {
+      "id": "9IP8",
+      "sha256": "baa357d3e848a50311aa46a35b55d9d85a0305218f44aba99e0818ac787df79b"
+    },
+    {
+      "id": "9IP9",
+      "sha256": "8692527caebde1cfb264b3140f78fda0227622a600758b96164c0a8d62184b98"
+    },
+    {
+      "id": "9IPA",
+      "sha256": "fe19054b830c496c38efdbec8b3a70e221e1140b6ef82487a09eeca1b6dcd693"
+    },
+    {
+      "id": "9IPB",
+      "sha256": "609b5fd46770a37645cb39413c2404300b9bbb37628fce2aa91491e19f7eeb7a"
+    },
+    {
+      "id": "9IPC",
+      "sha256": "ac462e32bc96b8705d0724ac49c7f9d8edd9df0d461e4a7ea367a0a0a13b430d"
+    },
+    {
+      "id": "9IPD",
+      "sha256": "37f5da2ff993ce883eb7ad6d9483ad06a94ae79681bb2db491cb000d86eadd29"
+    },
+    {
+      "id": "9IPE",
+      "sha256": "a5291df9fd4b1649926a3c2a34c65bbc0a3b8351921ef1a8e439dacc686f78dd"
+    },
+    {
+      "id": "9Z2H",
+      "sha256": "f5edbddcc21e17f76fcf1cf4f6c23bda9f38bcff95e4cacadd5a7bc1a4478aa0"
+    },
+    {
+      "id": "9Z9E",
+      "sha256": "9c482eebb94b3eca74d2787666e3898621176f24f678359114751bf7624859f1"
+    },
+    {
+      "id": "9Z9F",
+      "sha256": "594eadd89011c37497ca2d83dc74acdab9d42ef52f62f0714a520ca192d9a944"
     }
   ],
   "snapshot": {
     "file": "inputs.snapshot.json",
-    "sha256": "5af9660cd26bccd0045849be0768ce305d1a7058a8c4f8d442a7882a62703833"
+    "sha256": "7f6bc1f9f5dd67d821ff15303c26246bd131e7f79182a2910bb3f62a6d46dea6"
   }
 }

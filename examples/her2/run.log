@@ -1,4 +1,4 @@
-Replaying examples/her2/inputs.lock.json: 49 structures recorded on 2026-11-14
+Replaying examples/her2/inputs.lock.json: 49 structures recorded on 2026-11-15
 Target: HER2 (P04626)   output: runs/her2-replay
 
 STEP 1  Read what is already known about the protein
@@ -8,10 +8,10 @@ STEP 1  Read what is already known about the protein
         sequence 1255 residues  ->  runs/her2-replay/P04626.fasta
         63 structures listed on the entry
         signal peptide 1-22: files may number from 23 or from 1, so numbering is recovered per file in step 3
-        1 annotated domains: Protein-kinase-1 720-987
+        4 named domains: I 23-217, II 218-341, III 342-510, IV 511-629
 
 STEP 2  Collect the published structures of it
-        the list on the UniProt entry; download up to --limit of them
+        the list on the UniProt entry; download them
         the lock names 49 structures; the entry listed 63
         49 structure files in .cache
         every file matches the hash in the lock
@@ -24,36 +24,35 @@ STEP 3  Put them all in one coordinate frame
         chain names and resolutions for 49 entries from the snapshot
         running atlas.py over 49 files ...
         excluding chains that match: EGFR_HUMAN, ERBB3_HUMAN, ERBB4_HUMAN
-        31 of 49 entries used -> 36 units -> 24 distinct binders
-        31 complexes placed in one frame
-           16  same as the reference
-           14  UniProt numbering
+        28 of 49 entries used -> 31 units -> 23 distinct binders
+        28 complexes placed in one frame
+           15  same as the reference
+           12  UniProt numbering
             1  construct, offset +500 from the reference
+        5 entries skipped: solved at a resolution worse than 4 A (--max-resolution 0 keeps them)
 
 STEP 4  Count distinct binders, not files
         one antibody appears in six entries; collapse it to one
-        31 complexes  ->  36 binding units  ->  24 distinct binders
+        28 complexes  ->  31 binding units  ->  23 distinct binders
+        of the 23: 18 antibodies and nanobodies, 5 engineered scaffolds, 0 other proteins
         (one binder solved six times is one binder, not six)
         shapes of the binding units:
-           22  Fab
-            4  VHH
+           16  Fab
+            5  VHH
+            3  Fv
             2  scFv
             2  DARPin
-            2  Fcab (engineered Fc)
             1  Affibody
-        6 of 36 units are not antibody-shaped; check whether they belong:
-          Immunoglobulin G-binding protein A       Affibody  (3MZW)
-          Designed Ankyrin Repeat Protein 9_29     DARPin  (4HRL)
-          Designed Ankyrin Repeat Protein H10-2-G  DARPin  (4HRN)
-          Ig gamma-1 chain C region                Fcab (engineered Fc)  (5K33)
-          Ig gamma-1 chain C region                Fcab (engineered Fc)  (5KWG)
-          Repebody (Rb-H2)                         Repebody  (6LBX)
         solved more than once:
-           7 x  Herceptin Fab (antibody) (1N8Z)    1N8Z, 3BE1, 6BGT, 6OGE, 7MN8
-           6 x  Pertuzumab Fab (9L1S)              1S78, 6OGE, 8FFJ, 8PWH, 8Q6J
+           5 x  Herceptin Fab (antibody) (1N8Z)    1N8Z, 6BGT, 7MN8, 8PWH, 8Q6J
+           4 x  Pertuzumab Fab (9L1S)              1S78, 8PWH, 8Q6J, 9L1S
            2 x  EPS226 Fab (9T3S)                  9T3R, 9T3S
-        most-targeted patch: residues 167-190 (UniProt), hit by 8 of 24 distinct binders
-          anti-ErbB2 antibody ch, Antibody (3WLW), Designed Ankyrin Repea, Nanobody 2Rs15d (5MY6), MF3958 (5O4G), anti-HER2 humanized an ...
+        ! 1 units make 20% or more of their contacts with ANOTHER copy of the antigen. Only one copy is read, so their epitope is cut short.
+        most-targeted patch, antibodies and nanobodies: 4 of 18 touch the sphere (radius 10 A) around residue 162 (UniProt), I
+          chance: random footprints of the same sizes give a median of 4 (95th percentile 6); p = 0.8109; NOT above chance: these binders are spread over the antigen
+          anti-ErbB2 antibody ch, Antibody (3WLW), MF3958 (5O4G), anti-HER2 humanized an
+        most-targeted patch, all binders: 4 of 23 touch the sphere (radius 10 A) around residue 151 (UniProt), I
+          chance: random footprints of the same sizes give a median of 5 (95th percentile 6); p = 0.9652; NOT above chance: these binders are spread over the antigen
 
 STEP 5  Measure the surface
         exposure, hydrophobicity, burial, and how many binders touch each amino acid
@@ -62,21 +61,23 @@ STEP 5  Measure the surface
         most exposed hydrophobic residues: L528, V286, L295, V613, V107, V483, L586, L101
         Does surface property predict where binders land?
         Spearman rank correlation over the exposed residues, n = 442
-        hydrophobic  vs antibody-residue density: +0.060    vs distinct binders: +0.049
-        burial       vs antibody-residue density: -0.212    vs distinct binders: -0.179
-        rsasa        vs antibody-residue density: +0.230    vs distinct binders: +0.226
-        Bound (240) vs never bound (202), exposed residues only:
+        hydrophobic  vs antibody-residue density: +0.045    vs distinct binders: +0.035
+        burial       vs antibody-residue density: -0.203    vs distinct binders: -0.154
+        rsasa        vs antibody-residue density: +0.227    vs distinct binders: +0.205
+        Bound (238) vs never bound (204), exposed residues only:
         property           bound   unbound  reading
-        hydrophobic         0.30      0.22  exposed hydrophobic area, rSASA x KD
-        Kyte-Doolittle     -0.87     -1.08  raw hydrophobicity of the residue type
-        burial            111.40    120.07  antigen atoms within 10 A
+        hydrophobic         0.29      0.23  exposed hydrophobic area, rSASA x KD
+        Kyte-Doolittle     -0.88     -1.07  raw hydrophobicity of the residue type
+        burial            111.58    119.78  antigen atoms within 10 A
         rSASA               0.39      0.35  how exposed it is
 
 STEP 6  Hand over what a design model needs
         a hotspot file a design model can read, and the measured data behind it
-        hotspots, in 8PWH chain E numbering: Q156,L157,A158,L159,T160,L161,R166,S167
-          the same residues in UniProt numbering: Q178,L179,A180,L181,T182,L183,R188,S189
+        hotspots, in 8PWH chain E numbering: D143,R166,S167,R168,A169,C170,H171,P172
+          the same residues in UniProt numbering: D165,R188,S189,R190,A191,C192,H193,P194
           (this file numbers from +22 against UniProt; the design model needs the file's own numbers)
+          each is touched by 2 or more binders and is at least 20% exposed in the free antigen
+          ! the patch is NOT above chance (step 4), so these residues are a starting guess, not a consensus
           runs/her2-replay/target/her2_hotspots.txt
           runs/her2-replay/target/her2_numbering.json
           runs/her2-replay/target/her2_target.pdb
@@ -90,4 +91,4 @@ STEP 6  Hand over what a design model needs
         atlas_log atlas.log
         summary   runs/her2-replay/summary.json
 
-Same six steps, different target. HER2: 49 structures in, 24 distinct binders out.
+Same six steps, different target. HER2: 49 structures in, 23 distinct binders out (18 antibodies and nanobodies).

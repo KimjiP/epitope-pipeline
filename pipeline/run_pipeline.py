@@ -3,46 +3,43 @@
 
 Usage:
     python3 run_pipeline.py --uniprot ACC --name NAME [--region LO-HI]
-                            [--limit N] [--exclude-uniprot ACC,ACC,...]
+                            [--limit N|all] [--max-resolution A]
+                            [--exclude-uniprot ACC,ACC,...] [--domains NAME=LO-HI,...]
                             [--out DIR] [--cache DIR]
+    python3 run_pipeline.py --from-lock inputs.lock.json --out DIR
 
-Example — the same six steps the HER2 map shows, run on EGFR:
+Example, the same six steps run on EGFR:
     python3 run_pipeline.py --uniprot P00533 --name EGFR \
-        --region 1-640 --limit 30 \
-        --exclude-uniprot P04626,P21860,Q15303 --out ../demo-egfr
-
-Why this exists
----------------
-The HER2 analysis was not a one-off. Everything in it is driven by two
-identifiers: a UniProt accession and a list of structures. Give it a different
-accession and the same steps run. This script is the proof.
+        --exclude-uniprot P04626,P21860,Q15303 --out runs/egfr
 
 What it does, step by step, printed as it goes:
 
-  1. Ask what is already known.   In the real HER2 run this was nine Amass
-     queries, and the list of structures came from one field of an Amass gene
-     record. Here the same list is read from the UniProt entry's own
-     cross-references, so the demo needs no account and no credits.
-  2. Collect every published structure.
-  3. Put them in one coordinate frame.  Each file's own residue numbering is
-     recovered by alignment; relatives of the target are dropped so a receptor
-     partner is not mistaken for a binder.
-  4. Count distinct binders, not files.
+  1. Read what is known: the sequence, the parts and the list of structures, from UniProt.
+  2. Collect the published structures that reach the outside of the protein.
+  3. Put them in one coordinate frame. Each file's own residue numbering is recovered by
+     alignment; relatives of the target are dropped so a receptor partner is not mistaken for
+     a binder.
+  4. Count distinct binders, not files, and ask where they converge, and whether that is more
+     than chance.
   5. Measure the surface.
   6. Write the outputs.
 
-Steps 3 to 5 are atlas.py and surface_props.py, unchanged. This script only
-fetches the inputs, picks a reference structure and reports.
+Steps 3 to 5 are atlas.py, convergence.py and surface_props.py. This script fetches the inputs,
+picks a reference structure and reports. Every run writes inputs.lock.json and
+inputs.snapshot.json; --from-lock replays them.
 
 Stdlib only.
 """
 import sys, os, re, json, hashlib, datetime, argparse, subprocess, urllib.request, urllib.error
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 UA = {'User-Agent': 'epitope-pipeline/1.0'}
+PDB_ID = re.compile(r'^[0-9][A-Za-z0-9]{3}$')
+MAX_AUTO = 100        # more structures than this and the user must say how many to read
 
 
 def get(url, timeout=60):
@@ -67,7 +64,7 @@ def uniprot_entry(acc):
                 .get('fullName', {}).get('value', acc))
     pdbs = []
     for x in data.get('uniProtKBCrossReferences', []):
-        if x.get('database') != 'PDB':
+        if x.get('database') != 'PDB' or not PDB_ID.match(x.get('id', '')):
             continue
         rng = None
         for p in x.get('properties', []):
@@ -76,31 +73,60 @@ def uniprot_entry(acc):
                 if m:
                     rng = (int(m.group(1)), int(m.group(2)))
         pdbs.append({'id': x['id'], 'range': rng})
+
     # Domain boundaries, in UniProt numbering, from the entry's own annotation.
     # Without these the atlas would label this target's residues with the
-    # domain names of whatever target ran last.
+    # domain names of whatever target ran last. A feature whose description is
+    # only "Approximate" (EGFR has two) carries no name and is left out.
     def bounds(f):
         loc = f.get('location', {})
         a = loc.get('start', {}).get('value')
         b = loc.get('end', {}).get('value')
         return (int(a), int(b)) if a is not None and b is not None else (None, None)
 
-    doms, seen, sig, ecd = [], 0, None, None
+    # EVERY extracellular segment is kept. A membrane protein that crosses the membrane several
+    # times (a GPCR, CD20) has several, and the first version kept only the last one.
+    doms, seen, sig, regions = [], 0, None, []
     for f in data.get('features', []):
         t, desc = f.get('type'), (f.get('description') or '')
         lo, hi = bounds(f)
         if t == 'Signal' and hi:
             sig = hi
         elif t == 'Topological domain' and 'xtracellular' in desc and lo:
-            ecd = (lo, hi)
-        elif t in ('Domain', 'Repeat') and lo:
+            regions.append((lo, hi))
+        elif t in ('Domain', 'Repeat') and lo and desc.strip().lower() != 'approximate':
             seen += 1
             label = re.sub(r'[^A-Za-z0-9]+', '-', desc or f'D{seen}').strip('-')
             doms.append((f'{label[:18] or "D"}-{seen}', lo, hi))
-    return seq, name, pdbs, doms, sig, ecd
+    return seq, name, pdbs, doms, sig, regions
+
+
+def parse_domains(text):
+    """'I=23-217,II=218-341' -> [('I', 23, 217), ('II', 218, 341)]"""
+    out = []
+    for part in filter(None, (text or '').split(',')):
+        name, _, rng = part.partition('=')
+        lo, _, hi = rng.partition('-')
+        try:
+            out.append((name.strip(), int(lo), int(hi)))
+        except ValueError:
+            sys.exit(f'--domains: cannot read "{part}"; write it as NAME=LO-HI')
+    return out
+
+
+def fmt_regions(regions):
+    return ', '.join(f'{lo}-{hi}' for lo, hi in regions)
+
+
+def in_regions(pdbs, regions):
+    """The structures that cover any part of any of the regions (UniProt numbering)."""
+    return [p for p in pdbs if p['range'] and any(
+        p['range'][1] >= lo and p['range'][0] <= hi for lo, hi in regions)]
 
 
 def download(pdb_id, cache):
+    if not PDB_ID.match(pdb_id):
+        return pdb_id, False, 'not a PDB id'
     dest = os.path.join(cache, f'{pdb_id}.cif')
     if os.path.exists(dest) and os.path.getsize(dest) > 2000:
         return pdb_id, True, 'cached'
@@ -108,8 +134,14 @@ def download(pdb_id, cache):
         blob = get(f'https://files.rcsb.org/download/{pdb_id}.cif', timeout=120)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
         return pdb_id, False, str(e)[:40]
-    with open(dest, 'wb') as fh:
+    if not blob.lstrip().startswith(b'data_'):
+        return pdb_id, False, 'not an mmCIF file'
+    # write beside the target and rename, so a run that is killed mid-write cannot leave a
+    # truncated file that the next run would take for a cached structure
+    tmp = f'{dest}.{os.getpid()}.part'
+    with open(tmp, 'wb') as fh:
         fh.write(blob)
+    os.replace(tmp, dest)
     return pdb_id, True, 'downloaded'
 
 
@@ -126,6 +158,7 @@ ENTITY_QUERY = '''{
     rcsb_id
     struct { title }
     rcsb_entry_info { resolution_combined experimental_method }
+    rcsb_accession_info { initial_release_date }
     polymer_entities {
       rcsb_polymer_entity { pdbx_description }
       entity_poly { rcsb_entity_polymer_type }
@@ -189,11 +222,20 @@ def main():
     ap.add_argument('--name', help='short name for the target (read from the lock on a replay)')
     ap.add_argument('--region', help='LO-HI in UniProt numbering; keep only '
                                      'structures overlapping it')
-    ap.add_argument('--limit', type=int, default=30,
-                    help='how many structures to download (default 30)')
+    ap.add_argument('--limit', default=None, metavar='N|all',
+                    help='how many structures to read: a number, or "all". Default: all, unless '
+                         f'more than {MAX_AUTO} reach the outside of the protein, when you must '
+                         'choose. A number takes the FIRST N in PDB-id order, which is roughly '
+                         'the oldest first, so the counts are then a sample.')
+    ap.add_argument('--max-resolution', type=float, default=4.0, metavar='A',
+                    help='skip structures solved at a resolution worse than this, in angstrom '
+                         '(default 4.0; 0 keeps all). NMR entries have none and are kept.')
     ap.add_argument('--exclude-uniprot', default='',
                     help='relatives of the target, comma separated; their chains '
                          'are receptor partners, not binders')
+    ap.add_argument('--domains', metavar='NAME=LO-HI,...',
+                    help='name the antigen\'s domains, in UniProt numbering, instead of using '
+                         'the ones UniProt annotates (it names none for HER2 or EGFR)')
     ap.add_argument('--from-lock', metavar='LOCK',
                     help='replay a previous run exactly: the same PDB entries and the '
                          'same reference structure, with every file checked against '
@@ -212,6 +254,9 @@ def main():
     if lock:
         if args.uniprot and args.uniprot != lock['uniprot']:
             sys.exit(f'--uniprot {args.uniprot} does not match the lock ({lock["uniprot"]})')
+        bad = [x['id'] for x in lock['structures'] if not PDB_ID.match(str(x.get('id')))]
+        if bad:
+            sys.exit(f'the lock holds ids that are not PDB ids: {bad[:3]}')
         args.uniprot = lock['uniprot']
         args.name = args.name or lock['target']
         print(f'Replaying {args.from_lock}: {len(lock["structures"])} structures '
@@ -239,10 +284,13 @@ def main():
         pdbs = [{'id': p['id'], 'range': tuple(p['range']) if p['range'] else None}
                 for p in u['pdbs']]
         doms = [(n, a, b) for n, a, b in u['domains']]
-        ecd = tuple(u['ecd']) if u['ecd'] else None
+        regions = ([tuple(r) for r in u['regions']] if 'regions' in u
+                   else ([tuple(u['ecd'])] if u.get('ecd') else []))
         print('        read from the snapshot beside the lock; no network call')
     else:
-        seq, fullname, pdbs, doms, sig, ecd = uniprot_entry(args.uniprot)
+        seq, fullname, pdbs, doms, sig, regions = uniprot_entry(args.uniprot)
+        if args.domains:
+            doms = parse_domains(args.domains)
         if lock:
             print('        ! this lock has no snapshot, so UniProt is read live and a change '
                   'there could change the result')
@@ -262,52 +310,70 @@ def main():
         print(f'        signal peptide 1-{sig}: files may number from {sig + 1} '
               f'or from 1, so numbering is recovered per file in step 3')
     if doms:
-        print(f'        {len(doms)} annotated domains: '
+        print(f'        {len(doms)} named domains: '
               + ', '.join(f'{n} {a}-{b}' for n, a, b in doms[:4])
               + (' ...' if len(doms) > 4 else ''))
     else:
-        print('        no annotated domains on the entry; the atlas will not '
-              'name domains')
+        print('        no named domains; the atlas will not name domains '
+              '(--domains NAME=LO-HI,... adds them)')
 
     # ---------------------------------------------------------------- 2 ----
     banner(2, 'Collect the published structures of it',
-           'the list on the UniProt entry; download up to --limit of them')
-    chosen, region = pdbs, None
+           'the list on the UniProt entry; download them')
+    why = ''
+    if lock:
+        regions_used = [tuple(r) for r in (lock.get('regions')
+                                           or ([lock['region']] if lock.get('region') else []))]
+        limit = lock.get('limit')
+        max_res = lock.get('max_resolution') or 0.0
+    else:
+        if args.region:
+            regions_used = [tuple(int(v) for v in args.region.split('-'))]
+            why = 'asked for'
+        else:
+            regions_used = regions
+            why = 'the outside-the-cell part, per UniProt'
+        limit = None if args.limit is None or str(args.limit).lower() == 'all' else int(args.limit)
+        max_res = args.max_resolution or 0.0
+
+    chosen = pdbs
     if lock:
         byid = {p['id']: p for p in pdbs}
-        chosen = [byid.get(x['id'], {'id': x['id'], 'range': None})
-                  for x in lock['structures']]
-        region = tuple(lock['region']) if lock.get('region') else None
+        chosen = [byid.get(x['id'], {'id': x['id'], 'range': None}) for x in lock['structures']]
         print(f'        the lock names {len(chosen)} structures; the entry listed '
               f'{len(pdbs)}')
         gone = [x['id'] for x in lock['structures'] if x['id'] not in byid]
         if gone:
             print('        ! no longer on the entry, fetching anyway: ' + ', '.join(gone))
-    elif args.region:
-        region = tuple(int(v) for v in args.region.split('-'))
-        why = 'asked for'
-    elif ecd:
-        region = ecd
-        why = 'the extracellular part, per UniProt'
-    if region and not lock:
-        lo, hi = region
-        chosen = [p for p in pdbs
-                  if p['range'] and p['range'][1] >= lo and p['range'][0] <= hi]
-        print(f'        keeping the {len(chosen)} of {len(pdbs)} that overlap '
-              f'residues {lo}-{hi} ({why})')
-        print('        an antibody drug must reach its target from outside the cell')
-    if len(chosen) > args.limit and not lock:
-        print(f'        taking the first {args.limit} (raise --limit for more)')
-        chosen = chosen[:args.limit]
+        in_region = lock.get('structures_in_region') or len(chosen)
+    else:
+        if regions_used:
+            chosen = in_regions(pdbs, regions_used)
+            print(f'        keeping the {len(chosen)} of {len(pdbs)} that overlap '
+                  f'residues {fmt_regions(regions_used)} ({why})')
+            print('        an antibody drug must reach its target from outside the cell')
+        in_region = len(chosen)
+        if args.limit is None and in_region > MAX_AUTO:
+            sys.exit(f'{in_region} structures reach the outside of the protein, and reading all '
+                     f'of them is a large download. Run again with --limit all to read them '
+                     f'all, or --limit N to read the first N (oldest first).')
+        if limit is not None and in_region > limit:
+            print(f'        taking the first {limit} of {in_region}, in PDB-id order (roughly '
+                  f'the oldest first). The rest are NOT read: the counts below are a sample.')
+            chosen = chosen[:limit]
     ids = [p['id'] for p in chosen]
-    ok = []
+    ok, failed = [], []
     with ThreadPoolExecutor(max_workers=8) as ex:
         for pid, good, how in ex.map(lambda p: download(p, cache), ids):
             if good:
                 ok.append(pid)
             else:
+                failed.append(pid)
                 print(f'        ! {pid}: {how}')
     print(f'        {len(ok)} structure files in {cache}')
+    if failed:
+        print(f'        ! {len(failed)} structures could not be fetched and are left out: '
+              + ', '.join(failed))
     if len(ok) < 3:
         sys.exit('not enough structures to continue')
     # The hash of every file this run actually used. Written to the lock, and
@@ -345,7 +411,8 @@ def main():
     banner(3, 'Put them all in one coordinate frame',
            "recover each file's own residue numbering, then superpose every "
            'complex')
-    from atlas import parse, chain_residues, intkeyed, find_offset   # noqa: E402
+    from atlas import parse, chain_residues, intkeyed, find_offset, AA3   # noqa: E402
+    import convergence                                                     # noqa: E402
     best = None
     for pid in ok:
         try:
@@ -379,9 +446,11 @@ def main():
     dom_arg = ','.join(f'{n}={a - ref_off}-{b - ref_off}'
                        for n, a, b in doms if b - ref_off > 0)
     atlas_out = os.path.join(out, 'atlas-out')
+    ref_cif = os.path.join(cache, f'{ref_pdb}.cif')
     cmd = [sys.executable, '-I', os.path.join(HERE, 'atlas.py'),
-           os.path.join(cache, f'{ref_pdb}.cif'), ref_chain, fasta, cache,
-           '--domains', dom_arg, '--only', ','.join(ok), '--out', atlas_out]
+           ref_cif, ref_chain, fasta, cache,
+           '--domains', dom_arg, '--only', ','.join(ok), '--out', atlas_out,
+           '--max-resolution', f'{max_res:g}']
     if excl_path:
         cmd += ['--exclude', excl_path]
     ent_doc = None
@@ -402,6 +471,8 @@ def main():
         cmd += ['--entities', ent_path]
         print(f'        chain names and resolutions for {n_ent} entries from '
               f'{"the snapshot" if snap else "the PDB"}')
+    elif max_res:
+        print('        ! no resolutions available, so --max-resolution cannot be applied')
     print(f'        running atlas.py over {len(ok)} files ...')
     r = subprocess.run(cmd, capture_output=True, text=True)
     atlas_log = os.path.join(out, 'atlas.log')
@@ -422,6 +493,11 @@ def main():
     print(f'        {len(entries)} complexes placed in one frame')
     for k, v in sorted(conv.items(), key=lambda kv: -kv[1]):
         print(f'          {v:>3}  {k}')
+    n_lowres = sum(1 for e in A.get('entries', [])
+                   if str(e.get('status', '')).startswith('resolution worse'))
+    if n_lowres:
+        print(f'        {n_lowres} entries skipped: solved at a resolution worse than '
+              f'{max_res:g} A (--max-resolution 0 keeps them)')
 
     # ---------------------------------------------------------------- 4 ----
     banner(4, 'Count distinct binders, not files',
@@ -430,8 +506,12 @@ def main():
     nu = A.get('n_units')
     units = A.get('units', [])
     clusters = A.get('clusters', [])
+    kinds = {k: sum(1 for c in clusters if c.get('kind') == k)
+             for k in ('antibody', 'scaffold', 'other')}
     print(f'        {len(entries)} complexes  ->  {nu} binding units  ->  '
           f'{nd} distinct binders')
+    print(f'        of the {nd}: {kinds["antibody"]} antibodies and nanobodies, '
+          f'{kinds["scaffold"]} engineered scaffolds, {kinds["other"]} other proteins')
     print('        (one binder solved six times is one binder, not six)')
     fmts = {}
     for u in units:
@@ -440,19 +520,15 @@ def main():
     print('        shapes of the binding units:')
     for k, v in sorted(fmts.items(), key=lambda kv: -kv[1])[:6]:
         print(f'          {v:>3}  {k}')
-    # Not everything that binds is a drug. On HER2 the receptor partners had to
-    # be excluded by sequence; here the target's own growth-factor ligands come
-    # through as binders. The pipeline reports them, it does not hide them.
-    # A nanobody IS an antibody, so atlas.ANTIBODY_LIKE (which is about
-    # paired-chain binders) is too narrow for this question.
-    AB = ('Fab', 'scFv', 'antibody fragment', 'VHH', 'single domain (VHH-sized)')
-    other = [u for u in units if (u.get('format') or '') not in AB]
+    # Not everything that binds is a drug. Other proteins are often the target's own ligands or
+    # receptors. They are counted and listed, and kept out of the patch below, which asks where
+    # ANTIBODIES converge.
+    other = [c for c in clusters if c.get('kind') == 'other']
     if other:
-        print(f'        {len(other)} of {nu} units are not antibody-shaped; '
-              f'check whether they belong:')
-        for u in other[:6]:
-            print(f'          {(u.get("name") or "unnamed")[:40]:<40} '
-                  f'{u.get("format")}  ({u["pdb"]})')
+        print(f'        {len(other)} distinct binders are other proteins (often the antigen\'s '
+              f'own ligands or receptors):')
+        for c in other[:6]:
+            print(f'          {(c.get("display") or c["label"])[:46]}')
     repeats = sorted((c for c in clusters if len(c.get('members', [])) > 1),
                      key=lambda c: -len(c['members']))
     if repeats:
@@ -461,42 +537,88 @@ def main():
             print(f'          {len(c["members"]):>2} x  '
                   f'{(c.get("display") or c.get("label") or c["id"])[:34]:<34} '
                   f'{", ".join(c.get("pdbs", [])[:5])}')
+    n_misfit = sum(1 for u in units if u.get('rmsd', 0) > 3.0)
+    n_quat = sum(1 for u in units if u.get('other_copy_share', 0) >= 0.2)
+    if n_misfit:
+        print(f'        ! {n_misfit} units are placed with a fit error above 3 A; their position '
+              f'in the 3D page is approximate')
+    if n_quat:
+        print(f'        ! {n_quat} units make 20% or more of their contacts with ANOTHER copy of '
+              f'the antigen. Only one copy is read, so their epitope is cut short.')
+    # Antigen residues with an insertion code (52A beside 52) are not read; HIV Env and some
+    # antibody-numbered antigens use them. None in HER2 or EGFR.
+    n_ic = sum(e.get('antigen_residues_with_insertion_codes_skipped', 0) for e in entries)
+    if n_ic:
+        print(f'        ! {n_ic} antigen residues carry insertion codes and are skipped, so any '
+              f'contact on them is missed')
 
-    # The most-targeted patch: slide a window and count DISTINCT binders in it,
-    # not contacts, so a popular antibody cannot vote twice.
-    ep_by_unit = {u['id']: set(u.get('epitope') or []) for u in units}
-    cl_ep = {}
-    for c in clusters:
-        s = set()
-        for m in c.get('members', []):
-            s |= ep_by_unit.get(m, set())
-        if s:
-            cl_ep[c.get('display') or c.get('label') or c['id']] = s
-    hot = None
-    if cl_ep:
-        allres = sorted(set().union(*cl_ep.values()))
-        W = 24
-        for s0 in range(allres[0], allres[-1] - W + 2):
-            hits = [n for n, s in cl_ep.items()
-                    if sum(1 for r in s if s0 <= r < s0 + W) >= 2]
-            if hot is None or len(hits) > hot[2]:
-                hot = (s0, s0 + W - 1, len(hits), hits)
-    if hot:
-        lo, hi, n, who = hot
-        print(f'        most-targeted patch: residues {lo + ref_off}-{hi + ref_off} '
-              f'(UniProt), hit by {n} of {nd} distinct binders')
-        print(f'          {", ".join(w[:22] for w in who[:6])}'
-              + (' ...' if len(who) > 6 else ''))
+    # The surface is measured first because the baseline below needs to know which residues are
+    # exposed. Its lines are printed under step 5.
+    props = os.path.join(out, 'props.json')
+    r2 = subprocess.run([sys.executable, '-I', os.path.join(HERE, 'surface_props.py'),
+                         ref_cif, ref_chain,
+                         '--atlas', os.path.join(atlas_out, 'atlas.json'),
+                         '--json', props],
+                        capture_output=True, text=True)
+    rsasa = {}
+    if r2.returncode == 0 and os.path.exists(props):
+        rsasa = {int(k): v['rsasa'] for k, v in json.load(open(props))['residues'].items()}
+    exposed = {r for r, x in rsasa.items() if x >= 0.10}
+
+    # Where do the binders converge? Footprints are the residues a binder touches in at least
+    # half of its structures. See convergence.py for the rule and the baseline.
+    refres = intkeyed(chain_residues(parse(ref_cif))[ref_chain])
+    ca = {r: ats['CA'] for r, (comp, ats) in refres.items() if 'CA' in ats}
+    dens = {int(k): v for k, v in A.get('density_distinct', {}).items()}
+    foot = {c['id']: set(c.get('epitope_core') or []) for c in clusters}
+    names = {c['id']: (c.get('display') or c.get('label') or c['id']) for c in clusters}
+    nb = convergence.neighbours(ca)
+
+    def dom_name(uniprot_number):
+        for n, a, b in doms:
+            if a <= uniprot_number <= b:
+                return n
+        return None
+
+    patches = {}
+    for basis, bids in (('antibodies and nanobodies', {c['id'] for c in clusters
+                                                       if c.get('kind') == 'antibody'}),
+                        ('all binders', {c['id'] for c in clusters})):
+        fp = {i: foot[i] for i in bids}
+        res = convergence.find_patch(fp, ca, nb)
+        if res and exposed:
+            res['chance'] = convergence.chance(
+                convergence.baseline(fp, ca, exposed, nb), res['hits'])
+        patches[basis] = res
+    primary = 'antibodies and nanobodies' if kinds['antibody'] >= 4 else 'all binders'
+    hot = patches[primary]
+
+    def say_patch(basis, res):
+        if not res:
+            print(f'        {basis}: too few binders with 3 or more contact residues to look '
+                  f'for a patch')
+            return
+        c = res['centre'] + ref_off
+        d = dom_name(c)
+        print(f'        most-targeted patch, {basis}: {res["hits"]} of {res["considered"]} '
+              f'touch the sphere (radius {convergence.RADIUS:g} A) around residue {c} '
+              f'(UniProt)' + (f', {d}' if d else ''))
+        ch_ = res.get('chance')
+        if ch_:
+            verdict = ('above chance' if ch_['p'] < 0.05 else
+                       'NOT above chance: these binders are spread over the antigen')
+            print(f'          chance: random footprints of the same sizes give a median of '
+                  f'{ch_["median"]} (95th percentile {ch_["p95"]}); p = {ch_["p"]:g}; {verdict}')
+        if basis == primary:
+            print(f'          {", ".join(names[i][:22] for i in res["binders"][:6])}'
+                  + (' ...' if len(res['binders']) > 6 else ''))
+    say_patch(primary, hot)
+    if primary != 'all binders':
+        say_patch('all binders', patches['all binders'])
 
     # ---------------------------------------------------------------- 5 ----
     banner(5, 'Measure the surface',
            'exposure, hydrophobicity, burial, and how many binders touch each amino acid')
-    props = os.path.join(out, 'props.json')
-    r2 = subprocess.run([sys.executable, '-I', os.path.join(HERE, 'surface_props.py'),
-                         os.path.join(cache, f'{ref_pdb}.cif'), ref_chain,
-                         '--atlas', os.path.join(atlas_out, 'atlas.json'),
-                         '--json', props],
-                        capture_output=True, text=True)
     if r2.returncode != 0:
         print(r2.stdout[-1500:]); print(r2.stderr[-1500:])
     else:
@@ -508,58 +630,69 @@ def main():
     # ---------------------------------------------------------------- 6 ----
     banner(6, 'Hand over what a design model needs',
            'a hotspot file a design model can read, and the measured data behind it')
-    hot_files = {}
+    hot_files, spec, page = {}, '', None
+    supported = bool(hot and hot.get('chance') and hot['chance']['p'] < 0.05)
     if hot:
-        dens = {int(k): v for k, v in A.get('density_distinct', {}).items()}
-        lo, hi = hot[0], hot[1]
-        ranked = sorted((r for r in range(lo, hi + 1) if dens.get(r)),
-                        key=lambda r: -dens[r])[:8]
-        refres = intkeyed(chain_residues(
-            parse(os.path.join(cache, f'{ref_pdb}.cif')))[ref_chain])
-        from atlas import AA3                                     # noqa: E402
-        spec = ','.join(f'{AA3.get(refres[r][0], "X")}{r}'
-                        for r in sorted(ranked) if r in refres)
+        cdb = defaultdict(int)
+        for i in [c['id'] for c in clusters if (c.get('kind') == 'antibody')
+                  or primary == 'all binders']:
+            for r_ in foot[i]:
+                cdb[r_] += 1
+        picked = convergence.pick_hotspots(hot['touched'], cdb, rsasa, dens)
+        if not picked:
+            print('        no residue in the patch is touched by 2 or more binders and at '
+                  'least 20% exposed, so no hotspot file is written')
+        else:
+            spec = ','.join(f'{AA3.get(refres[r_][0], "X")}{r_}' for r_ in picked if r_ in refres)
+            first, last = min(refres), max(refres)
+            lo_w, hi_w = max(first, min(picked) - 20), min(last, max(picked) + 20)
+            tdir = os.path.join(out, 'target')
+            stem = args.name.lower()
+            r3 = subprocess.run(
+                [sys.executable, '-I', os.path.join(HERE, 'prepare_target.py'),
+                 ref_cif, ref_chain,
+                 '--window', f'{lo_w}-{hi_w}',
+                 '--hotspots', spec, '--uniprot', fasta,
+                 '--outdir', tdir, '--name', stem],
+                capture_output=True, text=True)
+            if r3.returncode == 0:
+                print(f'        hotspots, in {ref_pdb} chain {ref_chain} numbering: {spec}')
+                print(f'          the same residues in UniProt numbering: '
+                      + ','.join(f'{AA3.get(refres[r_][0], "X")}{r_ + ref_off}'
+                                 for r_ in picked if r_ in refres))
+                print(f'          (this file numbers from {ref_off:+d} against '
+                      f'UniProt; the design model needs the file\'s own numbers)')
+                print('          each is touched by 2 or more binders and is at least 20% '
+                      'exposed in the free antigen')
+                if not supported:
+                    print('          ! the patch is NOT above chance (step 4), so these residues are a '
+                          'starting guess, not a consensus')
+                for f in sorted(os.listdir(tdir)):
+                    if f.startswith(stem) and '_full' not in f:
+                        hot_files[f] = os.path.join(tdir, f)
+                        print(f'          {os.path.join(tdir, f)}')
+            else:
+                print('        ! prepare_target.py refused the hotspot list, '
+                      'which is what it is for:')
+                for line in (r3.stdout + r3.stderr).strip().splitlines()[-4:]:
+                    print(f'          {line.strip()}')
+
+        # The same 3D page, with this target's numbers in it.
         tdir = os.path.join(out, 'target')
         stem = args.name.lower()
-        r3 = subprocess.run(
-            [sys.executable, '-I', os.path.join(HERE, 'prepare_target.py'),
-             os.path.join(cache, f'{ref_pdb}.cif'), ref_chain,
-             '--window', f'{max(1, lo - 20)}-{hi + 20}',
-             '--hotspots', spec, '--uniprot', fasta,
-             '--outdir', tdir, '--name', stem],
-            capture_output=True, text=True)
-        if r3.returncode == 0:
-            print(f'        hotspots, in {ref_pdb} chain {ref_chain} numbering: '
-                  f'{spec}')
-            print(f'          the same residues in UniProt numbering: '
-                  + ','.join(f'{AA3.get(refres[r][0], "X")}{r + ref_off}'
-                             for r in sorted(ranked) if r in refres))
-            print(f'          (this file numbers from {ref_off:+d} against '
-                  f'UniProt; the design model needs the file\'s own numbers)')
-            for f in sorted(os.listdir(tdir)):
-                if f.startswith(stem) and '_full' not in f:
-                    hot_files[f] = os.path.join(tdir, f)
-                    print(f'          {os.path.join(tdir, f)}')
-        else:
-            print('        ! prepare_target.py refused the hotspot list, '
-                  'which is what it is for:')
-            for line in (r3.stdout + r3.stderr).strip().splitlines()[-4:]:
-                print(f'          {line.strip()}')
-
-    # The same 3D page the HER2 run produced, with this target's numbers in it.
-    page = None
-    if hot:
-        first, last = min(refres), max(refres)
         r4 = subprocess.run(
             [sys.executable, '-I', os.path.join(HERE, 'prepare_target.py'),
-             os.path.join(cache, f'{ref_pdb}.cif'), ref_chain,
-             '--window', f'{first}-{last}', '--hotspots', spec,
+             ref_cif, ref_chain,
+             '--window', f'{min(refres)}-{max(refres)}',
+             '--hotspots', spec or f'{AA3.get(refres[min(refres)][0], "X")}{min(refres)}',
              '--uniprot', fasta, '--outdir', tdir, '--name', f'{stem}_full'],
             capture_output=True, text=True)
         whole = os.path.join(tdir, f'{stem}_full_target.pdb')
         if r4.returncode == 0 and os.path.exists(whole):
-            import demo_page                                      # noqa: E402
+            import demo_page                                          # noqa: E402
             cdist = {k: v for k, v in A.get('counts_distinct', {}).items()}
+            c0 = hot['centre'] + ref_off
+            d0 = dom_name(c0)
             page = demo_page.write(
                 os.path.join(out, 'viewer'),
                 {'title': f'{args.name}: where binders land',
@@ -571,28 +704,63 @@ def main():
                            ['structures used', len(entries)],
                            ['binding units', nu],
                            ['distinct binders', nd],
+                           ['of them antibodies', kinds['antibody']],
                            ['residues measured', len(refres)],
                            ['numbering vs UniProt', f'{ref_off:+d}']],
-                 'patch': {'label': f'residues {hot[0] + ref_off}-{hot[1] + ref_off} '
-                                    f'(UniProt), {hot[2]} of {nd} binders',
-                           'resi': list(range(hot[0], hot[1] + 1)),
-                           'binders': hot[3][:8]}},
+                 'patch': {'label': f'{hot["hits"]} of {hot["considered"]} {primary} touch '
+                                    f'the region around residue {c0} (UniProt)'
+                                    + (f', {d0}' if d0 else ''),
+                           'resi': hot['residues'],
+                           'binders': [names[i] for i in hot['binders'][:8]]}},
                 whole, os.path.join(atlas_out, 'binders.pdb'))
             print(f'        3D page: {page}')
 
     print('        the measured data:')
+
+    def patch_record(basis, res):
+        if not res:
+            return None
+        c = res['centre'] + ref_off
+        touched = [r_ + ref_off for r_ in res['touched']]
+        return {'basis': basis, 'centre_uniprot': c, 'radius_A': convergence.RADIUS,
+                'domain': dom_name(c), 'hits': res['hits'], 'of': res['considered'],
+                'rule': f'a binder hits when at least {convergence.MIN_RES} of its contact '
+                        f'residues, and at least {int(convergence.MIN_SHARE * 100)}% of them, '
+                        f'lie in the sphere',
+                'binders': [names[i] for i in res['binders']],
+                'touched_uniprot': touched,
+                'touched_runs_uniprot': convergence.runs_text(touched),
+                'chance': res.get('chance')}
+    released = sorted(e.get('rcsb_accession_info', {}).get('initial_release_date', '')[:10]
+                      for e in ((ent_doc or {}).get('data') or {}).get('entries') or []
+                      if e['rcsb_id'] in set(ok) and e.get('rcsb_accession_info'))
     summary = {'target': args.name, 'uniprot': args.uniprot, 'full_name': fullname,
-               'sequence_length': len(seq),
-               'structures_listed': len(pdbs), 'structures_used': len(ok),
+               'sequence_length': len(seq), 'signal_peptide': sig,
+               'structures_listed': len(pdbs), 'structures_in_region': in_region,
+               'structures_used': len(ok),
+               'sampled': bool(limit is not None and in_region > len(ok) + len(failed)),
+               'limit': limit, 'max_resolution': max_res or None,
+               'released_through': released[-1] if released else None,
                'reference': f'{ref_pdb} chain {ref_chain}',
                'reference_offset': ref_off,
                'complexes': len(entries), 'units': nu, 'distinct_binders': nd,
+               'distinct_antibodies': kinds['antibody'],
+               'distinct_scaffolds': kinds['scaffold'], 'distinct_other': kinds['other'],
+               'entries_skipped': A.get('skipped'),
                'numbering_conventions': conv, 'unit_formats': fmts,
                'domains_uniprot': [{'name': n, 'first': a, 'last': b}
                                    for n, a, b in doms],
-               'most_targeted_patch': (
-                   {'first_uniprot': hot[0] + ref_off, 'last_uniprot': hot[1] + ref_off,
-                    'distinct_binders': hot[2], 'binders': hot[3]} if hot else None),
+               'most_targeted_patch': patch_record(primary, hot),
+               'patch_by_basis': {b: patch_record(b, p) for b, p in patches.items()},
+               'quality': {'units_fit_error_over_3A': n_misfit,
+                           'units_with_contacts_on_another_copy': n_quat,
+                           'antigen_residues_skipped_for_insertion_codes': n_ic,
+                           'downloads_failed': failed},
+               'hotspots_uniprot': ([f'{AA3.get(refres[r_][0], "X")}{r_ + ref_off}'
+                                     for r_ in sorted(int(x[1:]) for x in spec.split(','))
+                                     if r_ in refres] if spec else []),
+               'hotspot_rule': 'touched by 2 or more binders and at least 20% exposed',
+               'hotspots_supported': supported,
                'hotspot_files': hot_files, 'viewer': page,
                'outputs': {'atlas': os.path.join(atlas_out, 'atlas.json'),
                            'binders': os.path.join(atlas_out, 'binders.pdb'),
@@ -609,11 +777,11 @@ def main():
     # replay needs the structure files and nothing more.
     snap_out = os.path.join(out, 'inputs.snapshot.json')
     with open(snap_out, 'w') as fh:
-        json.dump({'schema': 'epitope-pipeline-snapshot/1',
+        json.dump({'schema': 'epitope-pipeline-snapshot/2',
                    'uniprot': {'accession': args.uniprot, 'full_name': fullname,
                                'sequence': seq, 'signal': sig,
                                'domains': [list(d) for d in doms],
-                               'ecd': list(ecd) if ecd else None,
+                               'regions': [list(r_) for r_ in regions],
                                'pdbs': [{'id': p['id'],
                                          'range': list(p['range']) if p['range'] else None}
                                         for p in pdbs]},
@@ -624,13 +792,14 @@ def main():
 
     lock_out = os.path.join(out, 'inputs.lock.json')
     with open(lock_out, 'w') as fh:
-        json.dump({'schema': 'epitope-pipeline-lock/2',
+        json.dump({'schema': 'epitope-pipeline-lock/3',
                    'generated': datetime.datetime.now(datetime.timezone.utc)
                                 .replace(microsecond=0).isoformat(),
                    'target': args.name, 'uniprot': args.uniprot,
                    'sequence_sha256': seq_sha, 'sequence_length': len(seq),
-                   'region': list(region) if region else None,
-                   'limit': lock['limit'] if lock else args.limit,
+                   'regions': [list(r_) for r_ in regions_used],
+                   'limit': limit, 'structures_in_region': in_region,
+                   'max_resolution': max_res or None,
                    'exclude_uniprot': accs,
                    'reference': {'pdb': ref_pdb, 'chain': ref_chain,
                                  'offset': ref_off, 'modelled': ref_n},
@@ -661,7 +830,7 @@ def main():
     print(f'        summary   {os.path.join(out, "summary.json")}')
     print()
     print(f'Same six steps, different target. {args.name}: {len(ok)} structures in, '
-          f'{nd} distinct binders out.')
+          f'{nd} distinct binders out ({kinds["antibody"]} antibodies and nanobodies).')
     return 0
 
 

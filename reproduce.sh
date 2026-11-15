@@ -34,14 +34,16 @@ compare() {
   python3 -I - "$1" "$2" <<'PY'
 import json, sys
 want, got = (json.load(open(p)) for p in sys.argv[1:3])
-keys = ['structures_used', 'complexes', 'units', 'distinct_binders',
-        'reference', 'reference_offset', 'most_targeted_patch']
+keys = ['structures_used', 'complexes', 'units', 'distinct_binders', 'distinct_antibodies',
+        'reference', 'reference_offset', 'most_targeted_patch', 'hotspots_uniprot']
 bad = 0
 for k in keys:
     a, b = want.get(k), got.get(k)
     if k == 'most_targeted_patch':
-        a = a and (a['first_uniprot'], a['last_uniprot'], a['distinct_binders'])
-        b = b and (b['first_uniprot'], b['last_uniprot'], b['distinct_binders'])
+        def brief(p):
+            c = (p or {}).get('chance') or {}
+            return p and (p['centre_uniprot'], p['hits'], p['of'], c.get('median'), c.get('p'))
+        a, b = brief(a), brief(b)
     ok = a == b
     bad += not ok
     print(f"  {'ok ' if ok else 'BAD'} {k:<20} committed {a!r}" + ('' if ok else f"   got {b!r}"))

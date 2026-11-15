@@ -3,51 +3,215 @@
   "uniprot": "P04626",
   "full_name": "Receptor tyrosine-protein kinase erbB-2",
   "sequence_length": 1255,
+  "signal_peptide": 22,
   "structures_listed": 63,
+  "structures_in_region": 49,
   "structures_used": 49,
+  "sampled": false,
+  "limit": null,
+  "max_resolution": 4.0,
+  "released_through": "2026-03-11",
   "reference": "8PWH chain E",
   "reference_offset": 22,
-  "complexes": 31,
-  "units": 36,
-  "distinct_binders": 24,
+  "complexes": 28,
+  "units": 31,
+  "distinct_binders": 23,
+  "distinct_antibodies": 18,
+  "distinct_scaffolds": 5,
+  "distinct_other": 0,
+  "entries_skipped": {
+    "antigen present, no contacting partner": 6,
+    "no chain covers the reference region": 6,
+    "resolution worse than 4 A": 5,
+    "only receptor partners: A:ERBB3_HUMAN": 2,
+    "only receptor partners: A:EGFR_HUMAN": 1,
+    "only receptor partners: A:ERBB4_HUMAN": 1
+  },
   "numbering_conventions": {
-    "same as the reference": 16,
+    "same as the reference": 15,
     "construct, offset +500 from the reference": 1,
-    "UniProt numbering": 14
+    "UniProt numbering": 12
   },
   "unit_formats": {
-    "Fab": 22,
+    "Fab": 16,
     "scFv": 2,
     "Affibody": 1,
     "DARPin": 2,
-    "Fcab (engineered Fc)": 2,
-    "VHH": 4,
+    "Fcab (engineered Fc)": 1,
+    "VHH": 5,
     "Repebody": 1,
-    "single domain (VHH-sized)": 1,
-    "antibody fragment": 1
+    "Fv": 3
   },
   "domains_uniprot": [
     {
-      "name": "Protein-kinase-1",
-      "first": 720,
-      "last": 987
+      "name": "I",
+      "first": 23,
+      "last": 217
+    },
+    {
+      "name": "II",
+      "first": 218,
+      "last": 341
+    },
+    {
+      "name": "III",
+      "first": 342,
+      "last": 510
+    },
+    {
+      "name": "IV",
+      "first": 511,
+      "last": 629
     }
   ],
   "most_targeted_patch": {
-    "first_uniprot": 167,
-    "last_uniprot": 190,
-    "distinct_binders": 8,
+    "basis": "antibodies and nanobodies",
+    "centre_uniprot": 162,
+    "radius_A": 10.0,
+    "domain": "I",
+    "hits": 4,
+    "of": 18,
+    "rule": "a binder hits when at least 3 of its contact residues, and at least 25% of them, lie in the sphere",
     "binders": [
       "anti-ErbB2 antibody chA21 (3H3B)",
       "Antibody (3WLW)",
-      "Designed Ankyrin Repeat Protein 9_29 (4HRL)",
-      "Nanobody 2Rs15d (5MY6)",
       "MF3958 (5O4G)",
-      "anti-HER2 humanized antibody HuA21 (6J71)",
-      "H2Mab-119 (8JYR)",
-      "VHH nanobody 47D05 (9MTE)"
-    ]
+      "anti-HER2 humanized antibody HuA21 (6J71)"
+    ],
+    "touched_uniprot": [
+      138,
+      158,
+      159,
+      160,
+      162,
+      163,
+      164,
+      165,
+      166,
+      186,
+      187,
+      188,
+      189,
+      190,
+      191,
+      192,
+      193,
+      194,
+      207
+    ],
+    "touched_runs_uniprot": "138,158-160,162-166,186-194,207",
+    "chance": {
+      "draws": 200,
+      "median": 4,
+      "p95": 6,
+      "p": 0.8109
+    }
   },
+  "patch_by_basis": {
+    "antibodies and nanobodies": {
+      "basis": "antibodies and nanobodies",
+      "centre_uniprot": 162,
+      "radius_A": 10.0,
+      "domain": "I",
+      "hits": 4,
+      "of": 18,
+      "rule": "a binder hits when at least 3 of its contact residues, and at least 25% of them, lie in the sphere",
+      "binders": [
+        "anti-ErbB2 antibody chA21 (3H3B)",
+        "Antibody (3WLW)",
+        "MF3958 (5O4G)",
+        "anti-HER2 humanized antibody HuA21 (6J71)"
+      ],
+      "touched_uniprot": [
+        138,
+        158,
+        159,
+        160,
+        162,
+        163,
+        164,
+        165,
+        166,
+        186,
+        187,
+        188,
+        189,
+        190,
+        191,
+        192,
+        193,
+        194,
+        207
+      ],
+      "touched_runs_uniprot": "138,158-160,162-166,186-194,207",
+      "chance": {
+        "draws": 200,
+        "median": 4,
+        "p95": 6,
+        "p": 0.8109
+      }
+    },
+    "all binders": {
+      "basis": "all binders",
+      "centre_uniprot": 151,
+      "radius_A": 10.0,
+      "domain": "I",
+      "hits": 4,
+      "of": 23,
+      "rule": "a binder hits when at least 3 of its contact residues, and at least 25% of them, lie in the sphere",
+      "binders": [
+        "Designed Ankyrin Repeat Protein 9_29 (4HRL)",
+        "Nanobody 2Rs15d (5MY6)",
+        "H2Mab-119 (8JYR)",
+        "VHH nanobody 47D05 (9MTE)"
+      ],
+      "touched_uniprot": [
+        105,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        149,
+        150,
+        154,
+        173,
+        174,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182
+      ],
+      "touched_runs_uniprot": "105,107-112,149-150,154,173-174,177-182",
+      "chance": {
+        "draws": 200,
+        "median": 5,
+        "p95": 6,
+        "p": 0.9652
+      }
+    }
+  },
+  "quality": {
+    "units_fit_error_over_3A": 0,
+    "units_with_contacts_on_another_copy": 1,
+    "antigen_residues_skipped_for_insertion_codes": 0,
+    "downloads_failed": []
+  },
+  "hotspots_uniprot": [
+    "D165",
+    "R188",
+    "S189",
+    "R190",
+    "A191",
+    "C192",
+    "H193",
+    "P194"
+  ],
+  "hotspot_rule": "touched by 2 or more binders and at least 20% exposed",
+  "hotspots_supported": false,
   "hotspot_files": {
     "her2_hotspots.txt": "target/her2_hotspots.txt",
     "her2_numbering.json": "target/her2_numbering.json",
@@ -63,12 +227,12 @@
   },
   "correlations": {
     "n_exposed": 442,
-    "hydrophobic_vs_density": 0.06,
-    "burial_vs_density": -0.212,
-    "rsasa_vs_density": 0.23,
-    "hydrophobic_vs_binders": 0.049,
-    "burial_vs_binders": -0.179,
-    "rsasa_vs_binders": 0.226
+    "hydrophobic_vs_density": 0.045,
+    "burial_vs_density": -0.203,
+    "rsasa_vs_density": 0.227,
+    "hydrophobic_vs_binders": 0.035,
+    "burial_vs_binders": -0.154,
+    "rsasa_vs_binders": 0.205
   },
   "lock": "inputs.lock.json",
   "snapshot": "inputs.snapshot.json"
